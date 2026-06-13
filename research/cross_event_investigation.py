@@ -51,6 +51,7 @@ from gnews_deep_investigation import (  # noqa: E402
     _post,
     BASE,
 )
+from enhanced_retrieval import enhanced_retrieve  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +120,9 @@ def find_cross_event_text_references(events: list[dict]) -> list[dict]:
 def run_event(*, session_id: str, event_name: str, event_query: str,
               s1_articles_n: int, s2_articles_n: int, top_n: int, period: str,
               hypothesis: str | None = None, domain: str = "terror_financing",
-              relevance_threshold: float = 0.6) -> dict:
+              relevance_threshold: float = 0.6,
+              enhanced: bool = False, retrieval_depth: int = 1,
+              retrieval_expansions: int = 4, domain_key: str = "general") -> dict:
     """Run a single event's 2-stage flow into the given session, with
     `run=event_name` passed through both POSTs (the user-facing event name
     becomes the server-side run-label).
@@ -132,8 +135,16 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
     state = {"event_name": event_name, "query": event_query, "article_batches": []}
 
     # === STAGE 1 ===========================================================
-    print(f"\n[S1] Fetching {s1_articles_n} articles for the event")
-    s1_articles = ev.fetch_news(event_query, max_articles=s1_articles_n, period=period)
+    if enhanced:
+        print(f"\n[S1] Enhanced retrieval (depth={retrieval_depth}, "
+              f"expansions={retrieval_expansions}) -> top {s1_articles_n}")
+        s1_articles = enhanced_retrieve(
+            event_query, domain=domain_key, hypothesis=hypothesis,
+            depth=retrieval_depth, top_k=s1_articles_n,
+            expansions=retrieval_expansions, period=period, verbose=True)
+    else:
+        print(f"\n[S1] Fetching {s1_articles_n} articles for the event")
+        s1_articles = ev.fetch_news(event_query, max_articles=s1_articles_n, period=period)
     s1_ok = sum(1 for a in s1_articles if a.get("text"))
     print(f"     extracted {s1_ok}/{len(s1_articles)} articles "
           f"({sum(len(a.get('text','')) for a in s1_articles):,} chars)")
@@ -227,6 +238,16 @@ def main() -> int:
                    help="Override the domain preset's hypothesis text.")
     p.add_argument("--relevance-threshold", type=float, default=None,
                    help="Override the domain preset's relevance threshold (0-1).")
+    p.add_argument("--enhanced-retrieval", action="store_true",
+                   help="Use the enhanced retrieval (LLM query-expansion + "
+                        "title rerank + entity-driven depth) for Stage-1 instead "
+                        "of a single literal GNews query.")
+    p.add_argument("--retrieval-depth", type=int, default=1,
+                   help="Enhanced-retrieval depth: 1 = expand+rerank; each level "
+                        ">1 adds one entity-driven search turn. (--enhanced-retrieval)")
+    p.add_argument("--retrieval-expansions", type=int, default=4,
+                   help="How many LLM sub-queries to expand the seed into "
+                        "(--enhanced-retrieval).")
     args = p.parse_args()
 
     hypothesis, threshold, domain_label = resolve_domain(
@@ -273,6 +294,10 @@ def main() -> int:
             top_n=args.top_n_entities, period=args.period,
             hypothesis=hypothesis, domain=domain_label,
             relevance_threshold=threshold,
+            enhanced=args.enhanced_retrieval,
+            retrieval_depth=args.retrieval_depth,
+            retrieval_expansions=args.retrieval_expansions,
+            domain_key=args.domain,
         )
         e["article_batches"] = st.get("article_batches", [])
         artifacts["per_event_states"].append(st)

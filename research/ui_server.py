@@ -998,6 +998,11 @@ def create_investigation():
         cmd += ["--hypothesis", body["hypothesisOverride"]]
     if body.get("thresholdOverride") is not None:
         cmd += ["--relevance-threshold", str(body["thresholdOverride"])]
+    # Opt-in enhanced retrieval (LLM expansion + title rerank + entity-driven depth).
+    if adv.get("enhancedRetrieval"):
+        cmd += ["--enhanced-retrieval",
+                "--retrieval-depth", str(adv.get("retrievalDepth", 1)),
+                "--retrieval-expansions", str(adv.get("retrievalExpansions", 4))]
     spec["cmd"] = cmd
 
     job = Job(inv_id, spec)

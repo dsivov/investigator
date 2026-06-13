@@ -26,6 +26,10 @@
   let stage1Articles = $state(50);
   let stage2ArticlesPerEntity = $state(20);
   let topNEntities = $state(8);
+  // Enhanced retrieval (opt-in): LLM query-expansion + title rerank + depth.
+  let enhancedRetrieval = $state(false);
+  let retrievalDepth = $state(2);
+  let retrievalExpansions = $state(4);
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -168,7 +172,10 @@
       domain: `dom_${selectedDomainKey}`,
       period,
       threads: usableThreads,
-      advanced: { stage1Articles, stage2ArticlesPerEntity, topNEntities },
+      advanced: {
+        stage1Articles, stage2ArticlesPerEntity, topNEntities,
+        enhancedRetrieval, retrievalDepth, retrievalExpansions,
+      },
     };
     if (editingHypothesis && hypothesisOverride.trim()) {
       body.hypothesisOverride = hypothesisOverride.trim();
@@ -457,6 +464,31 @@
               <span class="text-xs text-slate-500">Top-N entities</span>
               <input type="number" min="2" max="20" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={topNEntities} />
             </label>
+          </div>
+
+          <!-- Enhanced retrieval -->
+          <div class="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
+            <label class="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+              <input type="checkbox" class="accent-emerald-500" bind:checked={enhancedRetrieval} />
+              ✦ Enhanced retrieval
+            </label>
+            <p class="text-[11px] text-slate-500 mt-1">
+              Expands the query into several angles, retrieves titles broadly,
+              reranks for relevance, and (depth&gt;1) deepens on the most relevant
+              entities — widening recall before fetching article bodies.
+            </p>
+            {#if enhancedRetrieval}
+              <div class="grid grid-cols-2 gap-4 mt-3 text-sm">
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs text-slate-500">Depth (entity-driven turns)</span>
+                  <input type="number" min="1" max="4" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={retrievalDepth} />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs text-slate-500">Query expansions</span>
+                  <input type="number" min="1" max="8" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={retrievalExpansions} />
+                </label>
+              </div>
+            {/if}
           </div>
         {/if}
       </div>
