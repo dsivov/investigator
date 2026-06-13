@@ -180,10 +180,6 @@ Three processes:
 - **Python** environment with the pipeline dependencies: `dspy`, `networkx`,
   `flask`, `python-dotenv`, `gnews`, `newspaper3k`, `googlenewsdecoder`,
   `semhash`, `wordllama`, `matplotlib`.
-- The pipeline engine imports two **external packages** that must be on
-  `PYTHONPATH` — `tangos_mvp` and `crewai_mvp` (the LightRAG-derived config +
-  triangulation tooling the engine is built on). Point `PYTHONPATH` at wherever
-  they live.
 - **Node.js** (18+) for the frontend.
 - An **OpenAI API key**.
 
@@ -200,7 +196,6 @@ cp .env.example .env
 
 ```sh
 TANGRAPH_TMFG=1 TANGRAPH_VIZ=1 TANGRAPH_DISABLE_CACHE=1 \
-  PYTHONPATH=src:.:/path/to/tangos_mvp \
   python -m tangraph
 ```
 
@@ -209,7 +204,7 @@ TANGRAPH_TMFG=1 TANGRAPH_VIZ=1 TANGRAPH_DISABLE_CACHE=1 \
 ### 3. Start the UI backend (port 5050)
 
 ```sh
-PYTHONPATH=.:src:/path/to/tangos_mvp python research/ui_server.py --port 5050
+python research/ui_server.py --port 5050
 ```
 
 It auto-discovers any past investigation artifacts under
@@ -240,7 +235,7 @@ Open **http://localhost:5180**.
 ## Running an investigation from the CLI (no UI)
 
 ```sh
-PYTHONPATH=.:src:/path/to/tangos_mvp python research/cross_event_investigation.py \
+python research/cross_event_investigation.py \
   --domain sanctions_evasion --period 30d \
   --event "russia_oil:Russia oil sanctions evasion dark fleet 2026" \
   --event "china_yuan:China yuan settlement Russia trade sanctions 2026" \
