@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tangraph"
+version = "1.0.0"
+description = "Triangulation Graph Server — entity/edge/evidence extraction for compliance & OSINT investigations"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [{ name = "dsivov", email = "dsivov@gmail.com" }]
+
+dependencies = [
+    # Web framework & HTTP
+    "flask[async]",  # async extra (asgiref) required for the async def route
+    "httpx",
+    "requests",
+    "aiohttp",
+    "python-dotenv",
+    "toml",
+
+    # LLM orchestration & schema
+    "dspy>=3.0.4",
+    "pydantic",
+    "openai>=2.9.0",
+    "litellm>=1.80.7",
+
+    # Embeddings / dedup / chunking
+    "model2vec",
+    "wordllama",
+    "semhash",
+    "vicinity",
+    "langchain-text-splitters",
+
+    # Transitive deps pulled in via the crewai_mvp sibling at runtime
+    # (TangosGenericSpecialist -> data_retrieval). Pinned here so a fresh
+    # env can actually serve a request.
+    "sentence-transformers",
+    "python-Levenshtein",
+
+    # Graph & analysis
+    "networkx",
+    "pyvis",
+    "pydot",
+    "matplotlib",
+    "scipy",
+    "pandas",
+    "numpy",
+
+    # Storage
+    "coffy",
+
+    # Analytics sub-package (lightrag-hku ships its own FastAPI server & client)
+    "lightrag-hku[api]",
+    "fastapi",
+    "uvicorn",
+    "ascii-colors",
+    "nltk",
+    "transformers",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pyflakes",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+tangraph = "tangraph.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tangraph"]
+
+# --- Tooling configuration -------------------------------------------------
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+src = ["src"]
+
+[tool.ruff.lint]
+# Conservative ruleset for a freshly-split codebase. Tighten in Phase 2/3.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort (import order)
+    "B",   # flake8-bugbear (common pitfalls)
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line-too-long: not enforcing during refactor
+    "B008",  # function call in default arg (FastAPI/Flask idiom)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/tangraph/analytics/*" = ["F", "E", "B", "UP", "I"]  # relocated as-is; cleanup in Phase 2
+"src/tangraph/config/settings.py" = ["I"]  # verbatim move from config.py; reorder deferred to Phase 2
+
+[tool.ruff.lint.isort]
+known-first-party = ["tangraph"]

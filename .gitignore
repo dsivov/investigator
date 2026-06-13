@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / agent harness
+.vscode/
+.idea/
+*.swp
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data / artifacts (keep these out of baseline; add explicit paths if needed)
+rag_storage/
+logs/
+*.log
+debug_output/
+# capture_golden writes a large raw snapshot (~18 MB) before trimming it down
+# to tests/fixtures/golden_stages.json.gz; keep only the trimmed file in baseline
+tests/fixtures/golden_run.json
+# User-provided OSINT fixtures (Globalaid/Acme/etc.) -- not for the repo
+test_input_data/
+news_investigations/
+
+# Old tangos/eddie investigation data + writeups + local-only fixtures
+# (kept on disk locally, never published)
+tests/fixtures/golden_stages.json.gz
+tests/capture_golden.py
+tests/run_smoke.py
+research/two_stage_experiment.py
+research/investigator_analysis_2stage.md
+research/investigator_analysis_news.md
+research/investigator_response_format.md
+
+# Legacy built web UI (superseded by ui/); contains old data + 3MB bundles
+webui/
+
+# Agent harness state
+.claude/
