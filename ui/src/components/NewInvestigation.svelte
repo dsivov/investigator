@@ -31,6 +31,37 @@
   let retrievalDepth = $state(2);
   let retrievalExpansions = $state(4);
 
+  // Manual sources (PDF uploads + URLs) and the GNews toggle.
+  let gnewsEnabled = $state(true);
+  let urlsText = $state("");
+  let uploadedPdfs = $state<{ id: string; name: string; bytes: number }[]>([]);
+  let uploading = $state(false);
+  let sourceError = $state<string | null>(null);
+
+  function usableUrls(): string[] {
+    return urlsText.split("\n").map((s) => s.trim()).filter(Boolean);
+  }
+
+  async function onPickPdfs(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    if (!files.length) return;
+    uploading = true;
+    sourceError = null;
+    try {
+      const { items } = await api.uploadSources(files);
+      uploadedPdfs = [...uploadedPdfs, ...items];
+    } catch (err: any) {
+      sourceError = err.message || "upload failed";
+    } finally {
+      uploading = false;
+      input.value = "";
+    }
+  }
+  function removePdf(id: string) {
+    uploadedPdfs = uploadedPdfs.filter((p) => p.id !== id);
+  }
+
   let submitting = $state(false);
   let error = $state<string | null>(null);
 
@@ -117,8 +148,13 @@
   }
   function validStep3() {
     const filled = threads.filter((t) => t.query.trim());
-    if (kind === "single") return filled.length === 1;
-    return filled.length >= 2;
+    const queryOk = kind === "single" ? filled.length === 1 : filled.length >= 2;
+    if (!queryOk) return false;
+    // With GNews disabled, at least one manual source is required.
+    if (!gnewsEnabled && usableUrls().length === 0 && uploadedPdfs.length === 0) {
+      return false;
+    }
+    return true;
   }
 
   // Review step: queries are auto-refined for the domain on launch, then
@@ -176,6 +212,8 @@
         stage1Articles, stage2ArticlesPerEntity, topNEntities,
         enhancedRetrieval, retrievalDepth, retrievalExpansions,
       },
+      gnewsEnabled,
+      extraSources: { urls: usableUrls(), pdfs: uploadedPdfs.map((p) => p.id) },
     };
     if (editingHypothesis && hypothesisOverride.trim()) {
       body.hypothesisOverride = hypothesisOverride.trim();
@@ -431,6 +469,58 @@
       {#if kind === "multi"}
         <button class="mt-3 text-xs text-emerald-400 hover:underline" onclick={addThread}>+ Add thread</button>
       {/if}
+
+      <!-- Sources -->
+      <div class="mt-5 rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Sources</div>
+        <label class="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+          <input type="checkbox" class="accent-emerald-500" bind:checked={gnewsEnabled} />
+          Search GNews
+        </label>
+        <p class="text-[11px] text-slate-500 mt-1">
+          Add your own documents to analyse alongside (or instead of) news.
+          Uploaded PDFs and URLs are always included — they skip the relevance
+          cutoff but are still scored against the domain hypothesis. The query
+          above still frames the analysis.
+        </p>
+
+        <!-- URLs -->
+        <div class="mt-3">
+          <span class="text-xs text-slate-500">URLs (one per line)</span>
+          <textarea
+            class="mt-1 w-full h-20 bg-slate-800 border border-slate-700 rounded p-2 text-xs text-slate-200 mono placeholder-slate-600"
+            placeholder="https://example.com/report&#10;https://example.org/filing"
+            bind:value={urlsText}
+          ></textarea>
+        </div>
+
+        <!-- PDFs -->
+        <div class="mt-2">
+          <label class="text-xs text-sky-400 hover:text-sky-300 cursor-pointer inline-flex items-center gap-1">
+            {#if uploading}
+              <span class="animate-spin inline-block">◠</span> Uploading…
+            {:else}
+              + Upload PDF
+            {/if}
+            <input type="file" accept="application/pdf" multiple class="hidden" onchange={onPickPdfs} />
+          </label>
+          {#each uploadedPdfs as p}
+            <div class="flex items-center justify-between text-xs text-slate-300 mt-1 rounded bg-slate-800 px-2 py-1">
+              <span class="mono truncate">{p.name}</span>
+              <button class="text-slate-500 hover:text-red-400 ml-2" onclick={() => removePdf(p.id)}>remove</button>
+            </div>
+          {/each}
+        </div>
+
+        {#if !gnewsEnabled && usableUrls().length === 0 && uploadedPdfs.length === 0}
+          <div class="text-[11px] text-amber-300 mt-2">
+            GNews is off — add at least one URL or PDF to run.
+          </div>
+        {/if}
+        {#if sourceError}
+          <div class="text-[11px] text-red-400 mt-1">{sourceError}</div>
+        {/if}
+      </div>
 
       <!-- Advanced -->
       <div class="mt-5">

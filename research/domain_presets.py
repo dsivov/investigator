@@ -93,6 +93,24 @@ PRESETS: dict[str, DomainPreset] = {
         relevance_threshold=0.55,
         description="Forced labour, conflict minerals, human-rights supply-chain risk",
     ),
+    "criminal_investigation": DomainPreset(
+        # Framed as an INVOLVEMENT test, not a culpability test. Evidence
+        # extraction is hypothesis-gated: a "does the entity commit crime"
+        # wording produces evidence only for suspects/perpetrators, so victims,
+        # witnesses, and investigating officers get no evidence record and are
+        # pruned (no prob -> dropped). An investigation graph needs every party
+        # to the incident, so the hypothesis credits any material role.
+        hypothesis=(
+            "Is the entity a party to, or materially involved in, the criminal "
+            "matter under investigation -- as a suspect, perpetrator, victim, "
+            "witness, investigating officer, or other involved person or "
+            "organisation (e.g. organised crime, money laundering, fraud, "
+            "trafficking, racketeering, bribery, or violent crime) -- as "
+            "attested by the source material?"
+        ),
+        relevance_threshold=0.55,
+        description="Crime incidents + parties: suspects, victims, witnesses, organised crime, fraud",
+    ),
     "general": DomainPreset(
         hypothesis=(
             "Does the entity's documented activity reflect the subject of "

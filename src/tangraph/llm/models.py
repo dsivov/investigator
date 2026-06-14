@@ -129,7 +129,7 @@ class Event(BaseModel):
     name: str                           # human-readable event label as written in source
     date: str                           # ISO-8601 (YYYY-MM-DD) when the source gives one; else "" if absent
     location: str                       # where it happened; "" if not stated
-    event_type: str                     # one of: military_action, sanctions, indictment, diplomatic, corporate_action, legislative, other
+    event_type: str                     # one of: military_action, sanctions, indictment, violent_crime, financial_crime, diplomatic, corporate_action, legislative, other
     participants: list[EventParticipant]
     description: str                    # 1-2 sentence summary of what happened
     confidence: float = 0.0             # [0,1] how confident the event is correctly read from the text

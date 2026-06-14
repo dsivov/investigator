@@ -122,7 +122,8 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
               hypothesis: str | None = None, domain: str = "terror_financing",
               relevance_threshold: float = 0.6,
               enhanced: bool = False, retrieval_depth: int = 1,
-              retrieval_expansions: int = 4, domain_key: str = "general") -> dict:
+              retrieval_expansions: int = 4, domain_key: str = "general",
+              gnews: bool = True, extra_articles: list[dict] | None = None) -> dict:
     """Run a single event's 2-stage flow into the given session, with
     `run=event_name` passed through both POSTs (the user-facing event name
     becomes the server-side run-label).
@@ -135,16 +136,25 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
     state = {"event_name": event_name, "query": event_query, "article_batches": []}
 
     # === STAGE 1 ===========================================================
-    if enhanced:
+    if gnews and enhanced:
         print(f"\n[S1] Enhanced retrieval (depth={retrieval_depth}, "
               f"expansions={retrieval_expansions}) -> top {s1_articles_n}")
         s1_articles = enhanced_retrieve(
             event_query, domain=domain_key, hypothesis=hypothesis,
             depth=retrieval_depth, top_k=s1_articles_n,
             expansions=retrieval_expansions, period=period, verbose=True)
-    else:
+    elif gnews:
         print(f"\n[S1] Fetching {s1_articles_n} articles for the event")
         s1_articles = ev.fetch_news(event_query, max_articles=s1_articles_n, period=period)
+    else:
+        print("\n[S1] GNews disabled -- using manual sources only")
+        s1_articles = []
+    # Manual sources are user-chosen: always included, prepended ahead of the
+    # GNews batch (they skip the title-rerank cutoff but still face the
+    # per-evidence relevance gate downstream).
+    if extra_articles:
+        print(f"     + {len(extra_articles)} manual source(s) (always-include)")
+        s1_articles = list(extra_articles) + s1_articles
     s1_ok = sum(1 for a in s1_articles if a.get("text"))
     print(f"     extracted {s1_ok}/{len(s1_articles)} articles "
           f"({sum(len(a.get('text','')) for a in s1_articles):,} chars)")
@@ -166,6 +176,14 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
     print(f"     after filters: nodes={len(s1_response.get('nodes',[]))}  "
           f"themes={len(s1_response.get('themes',[]))}  "
           f"of those tagged with '{event_name}': {len(s1_event_ids)}")
+
+    # Stage-2 fans out via GNews entity follow-ups; with GNews disabled there
+    # is nothing to fan out to, so the S1 graph is the final result.
+    if not gnews:
+        print("[S2] GNews disabled -- skipping entity follow-ups; S1 graph is final.")
+        state["response_after_S1"] = s1_response
+        state["entity_ids_in_event"] = sorted(s1_event_ids)
+        return state
 
     # === Pick top-N (run-restricted + theme-diversified) ===================
     exclude_tokens = {t.upper() for t in event_query.split()}
@@ -248,6 +266,15 @@ def main() -> int:
     p.add_argument("--retrieval-expansions", type=int, default=4,
                    help="How many LLM sub-queries to expand the seed into "
                         "(--enhanced-retrieval).")
+    p.add_argument("--extra-url", action="append", default=[], metavar="URL",
+                   help="Repeatable. A URL to fetch + analyse alongside GNews "
+                        "(always included, skips the rerank cutoff).")
+    p.add_argument("--extra-pdf", action="append", default=[], metavar="PATH",
+                   help="Repeatable. A local PDF to extract + analyse alongside "
+                        "GNews (always included).")
+    p.add_argument("--no-gnews", dest="gnews", action="store_false",
+                   help="Disable GNews retrieval entirely; analyse only the "
+                        "--extra-url / --extra-pdf manual sources.")
     args = p.parse_args()
 
     hypothesis, threshold, domain_label = resolve_domain(
@@ -265,6 +292,19 @@ def main() -> int:
         events.append({"name": name, "query": q})
     if len(events) < 1:
         print("need at least 1 --event entry", file=sys.stderr); return 2
+
+    # Ingest manual sources once; they attach to the FIRST event's Stage-1.
+    extra_articles: list[dict] = []
+    if args.extra_url or args.extra_pdf:
+        from source_ingest import ingest_sources
+        print(f"\n[sources] ingesting {len(args.extra_url)} URL(s) + "
+              f"{len(args.extra_pdf)} PDF(s)")
+        extra_articles = ingest_sources(args.extra_url, args.extra_pdf, verbose=True)
+        print(f"[sources] {len(extra_articles)} usable manual source(s)")
+    if not args.gnews and not extra_articles:
+        print("--no-gnews requires at least one usable --extra-url / --extra-pdf "
+              "source", file=sys.stderr)
+        return 2
     # A single event is a valid "single-query" investigation: it produces a
     # normal merged graph with no cross-event analytics (no entity can be in
     # >= 2 runs, so bridging_entities is empty and every theme is within-run).
@@ -285,7 +325,7 @@ def main() -> int:
 
     print(f"##   domain={domain_label!r}  relevance_threshold={threshold}")
     print(f"##   hypothesis: {hypothesis[:120]}{'...' if len(hypothesis) > 120 else ''}")
-    for e in events:
+    for idx, e in enumerate(events):
         st = run_event(
             session_id=session_id,
             event_name=e["name"], event_query=e["query"],
@@ -298,6 +338,10 @@ def main() -> int:
             retrieval_depth=args.retrieval_depth,
             retrieval_expansions=args.retrieval_expansions,
             domain_key=args.domain,
+            gnews=args.gnews,
+            # Manual sources attach to the first event only, so they aren't
+            # double-counted across runs (which would make them phantom bridges).
+            extra_articles=extra_articles if idx == 0 else None,
         )
         e["article_batches"] = st.get("article_batches", [])
         artifacts["per_event_states"].append(st)

@@ -84,15 +84,18 @@ def find_and_cut_strings(data, search_term=None, max_length=20000):
             value = urllib.parse.unquote(value)
             value = sanitize_json_string(value)
             value = remove_html_tags_regex(value)
-            if key == "text":
-                del data[key]
-            elif key == "response_text":
+            # `text` is deliberately NOT special-cased for deletion anymore.
+            # Dropping `text` was a legacy carry-over from the structured-input
+            # era (e.g. IRS-XML filings) where `text` was a noisy raw-dump
+            # field. For free-text article / document analysis `text` IS the
+            # body that entity-NER and evidence extraction need, so it now
+            # obeys the same max_length cap as every other field.
+            if key == "response_text":
                 del data[key]
             elif key == "query" and len(value) > 100:
                 del data[key]
-            else:
-                if len(value) > max_length:
-                    del data[key]
+            elif len(value) > max_length:
+                del data[key]
         elif isinstance(value, dict):
             find_and_cut_strings(value, max_length=max_length)
             if not value:

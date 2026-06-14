@@ -73,6 +73,21 @@ export const api = {
     return r.json();
   },
 
+  // Upload one or more PDFs as manual sources. Returns the stored ids to
+  // pass back in createInvestigation's extraSources.pdfs.
+  uploadSources: async (
+    files: File[]
+  ): Promise<{ items: { id: string; name: string; bytes: number }[] }> => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    const r = await fetch("/api/uploads", { method: "POST", body: form });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+
   createInvestigation: async (body: unknown): Promise<{ id: string; status: string }> => {
     const r = await fetch("/api/investigations", {
       method: "POST",

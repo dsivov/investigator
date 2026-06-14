@@ -162,6 +162,27 @@ def test_non_matching_edge_is_kept():
     assert len(out_edges) == 1
 
 
+def test_blank_saved_relation_backfilled_from_incoming():
+    # A pair first attested with a blank/"unknown" relation gets its label
+    # back-filled when a later run characterizes the same pair.
+    blank = json.dumps({"type": "unknown", "context": ""})
+    good = json.dumps({"type": "partnership", "context": "joint energy deal"})
+    saved_edges = [_edge("CHINA", "RUSSIA", relations=blank)]
+    new_edges = [_edge("CHINA", "RUSSIA", relations=good)]
+    _o, _d, sedges, _sn = merge_run_into_saved(new_edges, [], saved_edges, [])
+    assert sedges[0]["relations"] == good
+
+
+def test_informative_saved_relation_not_overwritten():
+    # Never clobber an already-good saved label with an incoming blank one.
+    good = json.dumps({"type": "partnership", "context": "joint energy deal"})
+    blank = json.dumps({"type": "unknown", "context": ""})
+    saved_edges = [_edge("CHINA", "RUSSIA", relations=good)]
+    new_edges = [_edge("CHINA", "RUSSIA", relations=blank)]
+    _o, _d, sedges, _sn = merge_run_into_saved(new_edges, [], saved_edges, [])
+    assert sedges[0]["relations"] == good
+
+
 # --- cross-run provenance (runs list union) --------------------------------
 
 

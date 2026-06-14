@@ -156,6 +156,13 @@ def merge_duplicate_group(dedup):
 
 def deduplicate_entities(entities_dicts, representative_identifiers, semhash_model=None):
     tangos_log.info("Grouping duplicates by name using similarity hashing...")
+    # SemHash.from_records raises ValueError("records must not be empty") on an
+    # empty list. A run can legitimately yield zero entities to dedup (e.g. a
+    # single short/odd source, or a doc that NER finds no named entities in);
+    # degrade to an empty result instead of 500-ing the whole POST.
+    if not entities_dicts:
+        tangos_log.warning("No entities to deduplicate; returning empty result.")
+        return [], [], []
     columns = ["representative_identifier"]
     all_identifiers = [entity["identifier"].upper() for entity in entities_dicts]
     all_representative_ids = [rep["identifier"].upper() for rep in representative_identifiers]
@@ -316,6 +323,16 @@ def _find_alias_in_saved(new_id: str, saved_ids: list, saved_token_sets: dict) -
 # noise exceeds the value of the merge.
 EVENT_DEDUP_DATE_WINDOW_DAYS = 7
 EVENT_DEDUP_PARTICIPANT_JACCARD = 0.60
+# Semantic merge path: the structured signature (event_type/date/participants)
+# is extraction-noisy -- especially for a single document re-chunked many ways,
+# where one incident is paraphrased into N events with drifting types, dates,
+# and placeholder participants ("victim"/"SUS 1"). The event NAME is the
+# cleanest signal, but is otherwise only exact-matched. A high WordLlama cosine
+# over the name, gated by date-compatibility, collapses those paraphrases
+# without folding distinct same-week incidents together. (Description is
+# excluded: it varies per chunk and dilutes the name signal -- name-only cosine
+# ~0.9 for the same incident vs ~0.4 for a genuinely different one.)
+EVENT_DEDUP_COSINE_THRESHOLD = 0.86
 
 
 def _event_type(ev_record: dict) -> str:
@@ -443,6 +460,33 @@ def _events_match(a: dict, b: dict) -> bool:
         return False
     part_jac = len(pa & pb) / len(pa | pb)
     return part_jac >= EVENT_DEDUP_PARTICIPANT_JACCARD
+
+
+def _event_text(ev_record: dict) -> str:
+    """The event NAME -- the high-signal text for semantic event matching.
+    Description is excluded on purpose: it varies per chunk and dilutes the
+    name signal (name-only cosine ~0.9 for the same incident vs ~0.4 for a
+    genuinely different one)."""
+    return (ev_record.get("identifier") or "").strip()
+
+
+def _events_semantically_match(a: dict, b: dict, *,
+                               threshold: float = EVENT_DEDUP_COSINE_THRESHOLD) -> bool:
+    """Complementary semantic merge path. When the structured signature is too
+    noisy to fire (drifting event_type, scattered/`other` dates, placeholder
+    participants), fall back to WordLlama cosine over the event name +
+    description. Gated by date-compatibility (compatible-or-missing) so two
+    distinct same-week incidents phrased alike are not folded together."""
+    ta, tb = _event_text(a), _event_text(b)
+    if not ta or not tb:
+        return False
+    if not _dates_compatible(_event_dates(a), _event_dates(b),
+                             window_days=EVENT_DEDUP_DATE_WINDOW_DAYS):
+        return False
+    try:
+        return float(_wl.similarity(ta, tb)) >= threshold
+    except Exception:  # noqa: BLE001 -- never let an embedding failure break dedup
+        return False
 
 
 EVENT_TEMPORAL_COINCIDENT_DAYS = 3       # |d| <= this -> coincident (undirected)
@@ -656,7 +700,7 @@ def dedup_events_by_signature(events: list[dict]) -> list[dict]:
     for incoming in events:
         merged = False
         for canonical in out:
-            if _events_match(canonical, incoming):
+            if _events_match(canonical, incoming) or _events_semantically_match(canonical, incoming):
                 _merge_event_pair(canonical, incoming)
                 merged = True
                 break
@@ -788,6 +832,25 @@ def validate_entity_canonicals(entities: list[dict]) -> int:
         tangos_log.info(f"Canonical-fix: {old_ident[:60]!r} -> {new_ident!r}")
         n_fixed += 1
     return n_fixed
+
+
+def _relation_informative(relations) -> bool:
+    # An edge's relation is informative when it carries a real type (not blank /
+    # "unknown") or a non-empty context string. `relations` is a JSON string by
+    # the time edges reach the merge (resolve_edge_endpoints json.dumps it), but
+    # tolerate a dict too.
+    if isinstance(relations, str):
+        if not relations:
+            return False
+        try:
+            relations = json.loads(relations)
+        except (ValueError, TypeError):
+            return False
+    if not isinstance(relations, dict):
+        return False
+    rtype = (relations.get("type") or "").strip().lower()
+    context = (relations.get("context") or "").strip()
+    return (rtype not in ("", "unknown")) or bool(context)
 
 
 def merge_run_into_saved(edges_enrichment_results, merged_entities, saved_edges, saved_nodes):
@@ -930,6 +993,14 @@ def merge_run_into_saved(edges_enrichment_results, merged_entities, saved_edges,
             saved_edge["attributes"] = merge_data_fields(
                 [saved_edge.get("attributes", {}), edge.get("attributes", {})]
             )
+            # Back-fill the relation label: when the saved edge was first created
+            # with a blank/"unknown" relation but a later run characterized the
+            # same pair, adopt the incoming label instead of silently keeping the
+            # empty one. Never overwrite an already-informative saved relation.
+            if not _relation_informative(saved_edge.get("relations")) and _relation_informative(
+                edge.get("relations")
+            ):
+                saved_edge["relations"] = edge.get("relations")
             merged_runs = _merge_runs(saved_edge.get("runs"), edge.get("runs"))
             if merged_runs is not None:
                 saved_edge["runs"] = merged_runs

@@ -106,6 +106,7 @@ def _get_refiner():
         return None
 
 ARTIFACTS_DIR = (ROOT.parent / "news_investigations" / "cross_event").resolve()
+UPLOADS_DIR = (ROOT.parent / "news_investigations" / "uploads").resolve()
 SCHEMA_VERSION = "1"
 
 app = Flask(__name__)
@@ -928,6 +929,50 @@ def get_artifact(inv_id, name):
 
 
 # ---------------------------------------------------------------------------
+# Routes: manual-source uploads (PDF)
+# ---------------------------------------------------------------------------
+
+def _safe_upload_path(upload_id: str) -> Path | None:
+    """Resolve a client-supplied upload id ('<token>/<filename>') to an
+    absolute path, rejecting anything that escapes UPLOADS_DIR."""
+    if not upload_id or not isinstance(upload_id, str):
+        return None
+    candidate = (UPLOADS_DIR / upload_id).resolve()
+    try:
+        candidate.relative_to(UPLOADS_DIR)
+    except ValueError:
+        return None  # path traversal attempt
+    return candidate if candidate.exists() else None
+
+
+@app.route("/api/uploads", methods=["POST"])
+def upload_sources():
+    """Accept one or more uploaded PDFs (multipart field 'files'). Each is
+    stored under news_investigations/uploads/<token>/<filename>; the returned
+    `id` ('<token>/<filename>') is what the client passes back in
+    `extraSources.pdfs` when creating an investigation."""
+    from werkzeug.utils import secure_filename
+
+    files = request.files.getlist("files")
+    if not files:
+        return _err(400, "validation_failed", "no files in 'files' field", field="files")
+    items = []
+    for f in files:
+        name = secure_filename(f.filename or "")
+        if not name.lower().endswith(".pdf"):
+            return _err(400, "validation_failed",
+                        f"only .pdf uploads are supported (got {f.filename!r})", field="files")
+        token = uuid.uuid4().hex[:12]
+        dest_dir = UPLOADS_DIR / token
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / name
+        f.save(str(dest))
+        items.append({"id": f"{token}/{name}", "name": name,
+                      "bytes": dest.stat().st_size})
+    return jsonify({"items": items}), 201
+
+
+# ---------------------------------------------------------------------------
 # Routes: POST /investigations -- launch a new run
 # ---------------------------------------------------------------------------
 
@@ -965,6 +1010,23 @@ def create_investigation():
     period = body.get("period") or "30d"
     adv = body.get("advanced") or {}
 
+    # Manual sources (PDF uploads + URLs) and the GNews toggle.
+    gnews_enabled = body.get("gnewsEnabled", True)
+    src_in = body.get("extraSources") or {}
+    extra_urls = [u.strip() for u in (src_in.get("urls") or []) if isinstance(u, str) and u.strip()]
+    extra_pdf_ids = [p for p in (src_in.get("pdfs") or []) if isinstance(p, str) and p]
+    extra_pdf_paths: list[str] = []
+    for pid in extra_pdf_ids:
+        resolved = _safe_upload_path(pid)
+        if resolved is None:
+            return _err(400, "validation_failed",
+                        f"unknown or invalid upload id {pid!r}", field="extraSources.pdfs")
+        extra_pdf_paths.append(str(resolved))
+    if not gnews_enabled and not extra_urls and not extra_pdf_paths:
+        return _err(400, "validation_failed",
+                    "with GNews disabled you must supply at least one URL or PDF source",
+                    field="extraSources")
+
     # Idempotency: a client retrying the same key within IDEMP_TTL_SECS gets
     # back the existing job rather than starting a new run.
     idem_key = request.headers.get("Idempotency-Key")
@@ -983,7 +1045,9 @@ def create_investigation():
 
     inv_id = f"inv_{uuid.uuid4().hex[:10]}"
     spec = {"title": " · ".join(t["name"] for t in threads), "kind": kind,
-            "threads": threads, "domain": domain_key, "period": period, "advanced": adv}
+            "threads": threads, "domain": domain_key, "period": period, "advanced": adv,
+            "gnewsEnabled": gnews_enabled,
+            "extraSources": {"urls": extra_urls, "pdfs": extra_pdf_ids}}
 
     # Build the subprocess command line that drives cross_event_investigation.py
     cmd = [sys.executable, "research/cross_event_investigation.py",
@@ -1003,6 +1067,13 @@ def create_investigation():
         cmd += ["--enhanced-retrieval",
                 "--retrieval-depth", str(adv.get("retrievalDepth", 1)),
                 "--retrieval-expansions", str(adv.get("retrievalExpansions", 4))]
+    # Manual sources + GNews toggle.
+    for u in extra_urls:
+        cmd += ["--extra-url", u]
+    for pth in extra_pdf_paths:
+        cmd += ["--extra-pdf", pth]
+    if not gnews_enabled:
+        cmd += ["--no-gnews"]
     spec["cmd"] = cmd
 
     job = Job(inv_id, spec)

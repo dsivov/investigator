@@ -39,7 +39,11 @@
       const lq = q.toLowerCase();
       arr = arr.filter((r) => JSON.stringify(r).toLowerCase().includes(lq));
     }
-    arr.sort((a, b) => {
+    // Sort a COPY: `arr` may be a $state array (graph.edges) or a $derived
+    // (evidenceRows). Sorting in place mutates that value from inside this
+    // $derived.by, which Svelte 5 forbids (state_unsafe_mutation) and which
+    // broke the relationships/evidence views.
+    const sorted = [...arr].sort((a, b) => {
       const va = a[sortKey] ?? a.data?.[sortKey] ?? "";
       const vb = b[sortKey] ?? b.data?.[sortKey] ?? "";
       const cmp =
@@ -48,7 +52,7 @@
           : String(va).localeCompare(String(vb));
       return sortDir === "asc" ? cmp : -cmp;
     });
-    return arr.slice(0, 500);
+    return sorted.slice(0, 500);
   });
 
   function sortBy(k: string) {

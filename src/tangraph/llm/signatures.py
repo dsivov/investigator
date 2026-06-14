@@ -307,11 +307,17 @@ class EventsRecognition(dspy.Signature):
                              listings, export controls)
           indictment        (criminal charges, arrests, extraditions,
                              court rulings)
+          violent_crime     (assault, GBH/wounding, stabbing, shooting,
+                             homicide, robbery, kidnapping, sexual offences)
+          financial_crime   (fraud, money laundering, embezzlement,
+                             bribery, theft, racketeering)
           diplomatic        (summits, treaties, statements, expulsions)
           corporate_action  (M&A, divestments, layoffs, audits, IPOs)
           legislative       (laws passed, votes, regulatory rule-making)
           other             (anything that clearly is an event but does
                              not fit the categories above)
+        Use indictment for the legal PROCESS (charge/arrest/ruling) and
+        violent_crime / financial_crime for the underlying OFFENCE itself.
       - description: a 1-2 sentence factual summary in the source's voice.
       - confidence: 0.0-1.0 -- how confident the event is correctly read
         from the text. 1.0 = explicit, dated, named participants. 0.5 =
