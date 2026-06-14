@@ -42,7 +42,9 @@ confidence calculation propagate across it.
 1. **Fetch.** Search Google News for each query and download the most relevant
    articles. Bodies that fail to fetch (paywalls, blocks) are kept as
    **headline-only** records rather than dropped — a headline still carries
-   entity signal.
+   entity signal. You can also bring your **own sources** — upload PDFs or paste
+   URLs — analysed alongside the news fetch, or on their own (`--no-gnews`) to
+   run the same graph machinery over a single case file or document.
 2. **Extract.** An LLM reads each article and pulls out the **named actors**
    (people, organisations, places) and the **events** (concrete incidents:
    who did what to whom, when, where), plus any **source-claimed causation**.
@@ -167,9 +169,9 @@ Three processes:
   that POST to the engine, streams progress, generates customer reports, and
   serves the Cytoscape-ready graph/theme payloads.
 - **Frontend** (`ui/`, Svelte 5 + Vite, port **5180**) — the investigator UI:
-  New-Investigation wizard (with domain-aware query refinement + a vetoable
-  review step), live progress, and the Graph / TMFG-themes / Data / Report /
-  Sources tabs.
+  New-Investigation wizard (domain-aware query refinement + a vetoable review
+  step, plus a Sources step for adding your own PDFs/URLs), live progress, and
+  the Graph / TMFG-themes / Data / Report / Sources tabs.
 
 ---
 
@@ -249,6 +251,19 @@ Then turn the artifact into a customer report:
 
 ```sh
 python research/build_customer_report.py news_investigations/cross_event/<artifact>.json
+```
+
+### Analysing your own documents
+
+Add PDFs or URLs as extra sources, with or without a news fetch. With
+`--no-gnews` the pipeline runs purely over what you supply — e.g. a single case
+file under the `criminal_investigation` domain:
+
+```sh
+PYTHONPATH=.:src python research/cross_event_investigation.py \
+  --domain criminal_investigation --no-gnews \
+  --event "case:GBH stabbing investigation" \
+  --extra-pdf /path/to/report.pdf --extra-url https://example.com/filing
 ```
 
 ---
