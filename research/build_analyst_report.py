@@ -6,7 +6,7 @@ the actual evidence + relations the merged graph carries, and converts to PDF
 via pandoc + xelatex.
 
 Use:
-    PYTHONPATH=src:.:/path/to/tangos_mvp python research/build_analyst_report.py \
+    PYTHONPATH=src:. python research/build_analyst_report.py \
         <merged_graph_json> [--out <report.pdf>]
 """
 from __future__ import annotations

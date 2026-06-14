@@ -14,8 +14,8 @@ Goal: produce a news-corpus investigation at comparable volume to the curated
 test dossiers (~95 nodes Globalaid+Acme) so we can fairly assess the
 research-added network-analysis layer on real news data.
 
-Run (server must be up on :5003 with TANGRAPH_TMFG=1):
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp /home/dsivov/.conda/envs/tangos/bin/python \\
+Run (server must be up on :5003 with INVESTIGATOR_TMFG=1):
+    PYTHONPATH=.:src /home/dsivov/.conda/envs/tangos/bin/python \\
       research/gnews_deep_investigation.py \\
       --seed-query "Hamas terror financing US charities 2026" \\
       --stage1-articles 50 --stage2-articles-per-entity 20 \\
@@ -38,8 +38,8 @@ import requests
 # Re-use the publisher filter + fetch_news + build_payload from the existing runner.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import evaluate_tangraph_server as ev   # noqa: E402
-from tangraph.graph.dedup import _is_valid_canonical   # noqa: E402
+import evaluate_investigator_server as ev   # noqa: E402
+from investigator.graph.dedup import _is_valid_canonical   # noqa: E402
 
 
 def _connectivity_report(response: dict) -> dict:

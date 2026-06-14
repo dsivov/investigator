@@ -4,7 +4,7 @@ Survival = credible evidence; relevance = 0.7^hops_to_root; score = relevance ×
 prob; G8 = every survivor connected to root (evidence edge if needed).
 
 Run with the tangos env:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_stage4_score.py
+    PYTHONPATH=.:src <tangos-python> tests/test_stage4_score.py
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import networkx as nx  # noqa: E402
 
-from tangraph.graph.operations import (  # noqa: E402
+from investigator.graph.operations import (  # noqa: E402
     build_graph,
     evidence_probability,
     score_graph_by_connectivity,
@@ -38,7 +38,7 @@ def _node(ident, prob=0.9, evidence=True):
     }
 
 
-def _tangraph(*edges):
+def _investigator(*edges):
     g = nx.DiGraph()
     g.add_edges_from(edges)
     return g
@@ -52,21 +52,21 @@ def _reachable(ids, edges, root):
 
 
 def test_survival_by_evidence():
-    g = _tangraph(("ROOT", "A"), ("ROOT", "B"))
+    g = _investigator(("ROOT", "A"), ("ROOT", "B"))
     nodes = [_node("ROOT"), _node("A"), _node("B", prob=0.0, evidence=False)]
     _s, _e, ids = score_graph_by_connectivity(g, [], nodes, root="ROOT")
     assert set(ids) == {"ROOT", "A"}        # B (no evidence) dropped
 
 
 def test_root_always_kept_even_without_evidence():
-    g = _tangraph(("ROOT", "A"))
+    g = _investigator(("ROOT", "A"))
     nodes = [_node("ROOT", prob=0.0, evidence=False), _node("A")]
     _s, _e, ids = score_graph_by_connectivity(g, [], nodes, root="ROOT")
     assert "ROOT" in ids
 
 
 def test_relevance_decays_with_hops():
-    g = _tangraph(("ROOT", "A"), ("A", "B"))          # B is 2 hops from root
+    g = _investigator(("ROOT", "A"), ("A", "B"))          # B is 2 hops from root
     surv, _e, _i = score_graph_by_connectivity(g, [], [_node("ROOT"), _node("A"), _node("B")], root="ROOT")
     relv = {n["identifier"]: n["data"]["relevance_score"] for n in surv}
     assert relv["ROOT"] == 1.0
@@ -75,14 +75,14 @@ def test_relevance_decays_with_hops():
 
 
 def test_score_is_relevance_times_prob():
-    g = _tangraph(("ROOT", "A"))
+    g = _investigator(("ROOT", "A"))
     surv, _e, _i = score_graph_by_connectivity(g, [], [_node("ROOT"), _node("A", prob=0.8)], root="ROOT")
     a = next(n for n in surv if n["identifier"] == "A")
     assert abs(a["score"] - 0.7 * 0.8) < 1e-9
 
 
 def test_evidence_only_node_wired_to_root():
-    g = _tangraph(("ROOT", "A"))                      # C is not in the affiliation graph
+    g = _investigator(("ROOT", "A"))                      # C is not in the affiliation graph
     surv, edges, ids = score_graph_by_connectivity(g, [], [_node("ROOT"), _node("A"), _node("C")], root="ROOT")
     assert "C" in ids
     assert any(e["type"] == "evidence" and e["src_identifier"] == "C" and e["dst_identifier"] == "ROOT" for e in edges)
@@ -91,7 +91,7 @@ def test_evidence_only_node_wired_to_root():
 
 
 def test_orphan_edges_dropped():
-    g = _tangraph(("ROOT", "A"))
+    g = _investigator(("ROOT", "A"))
     edges_in = [
         {"src_identifier": "ROOT", "dst_identifier": "A", "type": "affiliation"},
         {"src_identifier": "A", "dst_identifier": "GHOST", "type": "affiliation"},
@@ -101,7 +101,7 @@ def test_orphan_edges_dropped():
 
 
 def test_G8_every_survivor_connected_to_root():
-    g = _tangraph(("ROOT", "A"), ("A", "B"))
+    g = _investigator(("ROOT", "A"), ("A", "B"))
     nodes = [_node("ROOT"), _node("A"), _node("B"), _node("LONE")]   # LONE disconnected
     _s, edges, ids = score_graph_by_connectivity(g, [], nodes, root="ROOT")
     assert _reachable(ids, edges, "ROOT") == set(ids)

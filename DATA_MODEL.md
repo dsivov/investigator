@@ -27,7 +27,7 @@ step3 dedup, _, _ = find_and_group_duplicates_for_entity(nodes, rep_ids)
 step4 edges, _, top_degrees, _, graph = build_graph(dedup, local)   # MUTATES local[junction_*]; returns 5-tuple
 step5 enrich = edges_enrichment_task(..); dedup = add_relations_to_nodes(dedup, enrich); enrich = register_edges(dedup, enrich, ..)
 step6 dedup,_,_,graph = node_and_evidence_consolidator(local, dedup, top_degrees, rep_ids, graph, ..)
-      dedup, enrich, _ = score_graph_by_connectivity(tangraph, enrich, dedup)   # MUTATES dedup & enrich in place AND returns
+      dedup, enrich, _ = score_graph_by_connectivity(investigator, enrich, dedup)   # MUTATES dedup & enrich in place AND returns
 merge saved_nodes = current[nodes].copy(); enrich, dedup, saved_edges, saved_nodes = merge_states(..)  # all in-place + returned
 step7 repo.update(id, {nodes: saved_nodes+dedup, edges: saved_edges+enrich, ..})
 return {nodes: saved_nodes+dedup, edges: saved_edges+enrich}
@@ -52,7 +52,7 @@ The nested-loop graph building isn't only slow; several constructions are
 them up:
 
 1. **`build_graph` junction map overwrites** (`operations.py:145`): `junction_nodes[chunkA["uuid"]] = {...}` is keyed by `chunkA` only, so for a chunk that shares entities with several others, **each matching `chunkB` overwrites the last** — only one neighbour survives per chunk. Junction detection silently drops pairings. → fix in step 5 (per-pair / shared-entity-set keying).
-2. **`score_graph_by_connectivity` synthesizes edges then deletes them all** (`operations.py:262` vs `:305`): the `for edge in tangraph.edges` block appends edges carrying `src_identifier/dst_identifier/unique_identifier` but **no `src_unique_identifier/dst_unique_identifier`**; the later cleanup removes every edge missing those keys → 100% of the synthesized edges are discarded. The enriched_graph build is the only useful part; the append is dead work. This is a direct symptom of the inconsistent edge id model. → fix in step 6 (`EdgeRecord` with one consistent field set).
+2. **`score_graph_by_connectivity` synthesizes edges then deletes them all** (`operations.py:262` vs `:305`): the `for edge in investigator.edges` block appends edges carrying `src_identifier/dst_identifier/unique_identifier` but **no `src_unique_identifier/dst_unique_identifier`**; the later cleanup removes every edge missing those keys → 100% of the synthesized edges are discarded. The enriched_graph build is the only useful part; the append is dead work. This is a direct symptom of the inconsistent edge id model. → fix in step 6 (`EdgeRecord` with one consistent field set).
 3. **`build_graph` dead dedup guard** (`operations.py:135,205`): `fully_connected_edges_` is declared and membership-tested every affiliation iteration but **never appended to** — the guard is always-empty/no-op; real dedup rides only on `graph.has_edge`. → remove in step 5.
 4. **`chunk_exists` never reset** (`operations.py:137`): set `True` on the first chunk pair with overlap and never cleared, so the "No shared entities" debug log is effectively dead after the first hit. Cosmetic, fix opportunistically in step 5.
 5. **`GraphBuilder`, `build_full_coarse_grained_graph`, `find_junction_nodes` are unused** (kept as scaffold in Phase 1): not called anywhere in the pipeline; both functions repeat the O(chunks²)+relabel pattern and a no-op `continue` (`operations.py:84`, meant to be `break`). → decide in step 8: delete, or fold into the live path. (Like `graph_identifier`, dead-but-kept.)

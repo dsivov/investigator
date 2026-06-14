@@ -1249,6 +1249,83 @@ overlap in actors or vocabulary, produces the same kind of output:
 bridges, themes, and source-cited leads.
 </p>
 
+<h2>A finding about our own pipeline: read the article, not just the headline</h2>
+
+<p>
+The sharpest finding this month was about the system itself. We wanted to
+push it past the newswire and onto a <em>single document</em> &mdash; the
+kind of case file an investigator actually receives. So we took a publicly
+released, anonymised UK police report of a GBH stabbing, built a
+fictionalised copy with an invented cast (no real people), and fed that one
+PDF in. The result was almost nothing: a graph with <span class="metric">one</span>
+node. A dense, name-rich incident report had produced an empty network.
+</p>
+
+<p>
+The dig was more interesting than the bug. Entity extraction had been
+running on article <strong>titles and metadata only</strong> &mdash; the
+article <em>body</em> was being silently discarded before the language model
+ever saw it, a leftover from the system's origins processing structured data
+feeds rather than free text. With a normal news run this hides in plain
+sight: fifty headlines still carry enough names to make the graph look
+healthy. With a single document there is exactly one headline, so the whole
+thing collapses &mdash; which is precisely what exposed it.
+</p>
+
+<p>
+Feeding the body to the extractor changed the picture completely. On a
+single GNews query we A/B-tested the same run with and without article
+bodies:
+</p>
+
+<ul>
+  <li>Title-only: <span class="metric">9</span> actors,
+      <span class="metric">70</span> nodes.</li>
+  <li>Body-included: <span class="metric">184</span> actors,
+      <span class="metric">635</span> nodes &mdash; a <strong>20&times;</strong>
+      gain in named actors, on identical queries and parameters.</li>
+</ul>
+
+<p>
+And it wasn't just more of the same. The body surfaced named actors no
+headline ever carried &mdash; an Iranian foreign minister, the Al-Qassam
+Brigades, a sanctioned ethical bank, heads of state &mdash; the specific
+&ldquo;how&rdquo; of a network that titles only gesture at. The headline is
+a lossy summary; the relationships live in the body.
+</p>
+
+<div class="key-finding">
+  <h3>The bug that was costing 20&times; the signal</h3>
+  <p>
+    A single legacy line &mdash; dropping the <code>text</code> field before
+    extraction &mdash; meant every investigation, for the system's whole
+    life, had been reading headlines and ignoring the articles underneath.
+    News runs masked it through sheer volume of headlines. It took the
+    single-document stress test to make the loss visible. Fixing it turned
+    the empty crime-report graph into a full case network:
+    <span class="metric">58</span> nodes &mdash; the three suspects (the
+    prime suspect ranked highest), both victims, the witness who placed a
+    fingerprint, the intervening manager, and the investigating officers
+    &mdash; with the who-did-what-to-whom roles attested:
+    <em>Marsh &mdash; perpetrator</em>, <em>Ferris &mdash; victim</em>,
+    <em>Anand &mdash; intervenor</em>.
+  </p>
+</div>
+
+<p>
+Two smaller findings rode along. First, the <em>question you ask</em> decides
+who survives: an early phrasing of the criminal-investigation prompt scored
+entities for <em>culpability</em>, which quietly dropped the victims and
+witnesses (they commit no crime) and kept only suspects. Re-framing it as an
+<em>involvement</em> test &mdash; party to the incident in any role &mdash;
+brought the full cast back. Second, the same incident was being extracted as
+<span class="metric">21</span> near-duplicate &ldquo;events&rdquo; (one per
+paraphrase: <em>&ldquo;stabbing at the hotel&rdquo;</em>,
+<em>&ldquo;GBH outside the hotel&rdquo;</em>&hellip;). Matching events by an
+embedding-similarity on their names &mdash; not just exact strings &mdash;
+collapses those paraphrases back into the single incident they describe.
+</p>
+
 <h2>What this is NOT</h2>
 
 <p>
@@ -1289,7 +1366,10 @@ well. The obvious next gaps:
       picker now refuses to expand on headline-shaped or event-typed
       identifiers. Some still slip through when the LLM produces no
       shorter alternative &mdash; the remaining cases are visible but
-      bounded.</li>
+      bounded. Event <em>paraphrases</em> of one incident now merge by
+      embedding similarity on the event name (not just exact match), so a
+      single document no longer shatters into a dozen near-duplicate
+      events.</li>
   <li><strong>Streaming.</strong> The system runs on demand. The obvious extension
       is a weekly/daily sweep over an analyst's watchlist of queries — pushing
       cross-story leads as they emerge rather than waiting for a manual run.</li>

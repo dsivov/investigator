@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import networkx as nx  # noqa: E402
 
-from tangraph.graph.tmfg import TMFGResult  # noqa: E402
-from tangraph.graph.junction_tree import BeliefPropagationResult  # noqa: E402
-from tangraph.pipeline.response_builder import build_network_analysis_payload  # noqa: E402
+from investigator.graph.tmfg import TMFGResult  # noqa: E402
+from investigator.graph.junction_tree import BeliefPropagationResult  # noqa: E402
+from investigator.pipeline.response_builder import build_network_analysis_payload  # noqa: E402
 
 
 def _mock_tmfg(members: list[str], *, fill_in_pairs: list[tuple] = ()) -> TMFGResult:

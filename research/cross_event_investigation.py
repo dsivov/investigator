@@ -42,7 +42,7 @@ import requests  # noqa: F401  -- kept for potential ad-hoc HTTP probes
 # Reuse the gnews fetcher + filters + diversified picker from the single-event runner.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import evaluate_tangraph_server as ev  # noqa: E402
+import evaluate_investigator_server as ev  # noqa: E402
 from gnews_deep_investigation import (  # noqa: E402
     _apply_filters,
     _build_combined_payload,

@@ -20,9 +20,9 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.junction_tree import propagate
-from tangraph.graph.tmfg import construct_tmfg
-from tangraph.graph.visualize import (
+from investigator.graph.junction_tree import propagate
+from investigator.graph.tmfg import construct_tmfg
+from investigator.graph.visualize import (
     _delta_color,
     _posterior_color,
     visualize_clique_tree,

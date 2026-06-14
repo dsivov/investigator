@@ -1,1 +1,1 @@
-"""Tests for tangraph."""
+"""Tests for investigator."""

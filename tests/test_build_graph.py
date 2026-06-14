@@ -1,6 +1,6 @@
 """Unit tests for the index-ified build_graph (DATA_MODEL migration step 5).
 
-Imports tangraph.graph.operations (networkx/pandas/scipy), so run with the
+Imports investigator.graph.operations (networkx/pandas/scipy), so run with the
 tangos env:
 
     PYTHONPATH=.:src /home/dsivov/.conda/envs/tangos/bin/python tests/test_build_graph.py
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import networkx as nx  # noqa: E402
 
-from tangraph.graph.operations import build_graph  # noqa: E402
+from investigator.graph.operations import build_graph  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 

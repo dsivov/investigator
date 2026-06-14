@@ -1,7 +1,7 @@
 """Stage 4 — evidence_probability (prob) tests — TRIANGULATION_REVIEW.md §4 / F10.
 
 Run with the tangos env:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_stage4_prob.py
+    PYTHONPATH=.:src <tangos-python> tests/test_stage4_prob.py
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.operations import evidence_probability  # noqa: E402
+from investigator.graph.operations import evidence_probability  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 

@@ -16,7 +16,7 @@ graph. We do not assert specific tetrahedra (those depend on LLM strength
 values), only the structural invariants and that the tetrahedra are
 interpretable (no degenerate seed, fill-in ratio is sane).
 
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-py> tests/test_tmfg.py
+    PYTHONPATH=.:src <tangos-py> tests/test_tmfg.py
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.operations import build_graph  # noqa: E402
-from tangraph.graph.tmfg import construct_tmfg, tetrahedron_weight  # noqa: E402
+from investigator.graph.operations import build_graph  # noqa: E402
+from investigator.graph.tmfg import construct_tmfg, tetrahedron_weight  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 

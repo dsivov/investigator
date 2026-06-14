@@ -74,7 +74,7 @@ What's **fragile or questionable** (candidates for Phase 3 hardening):
 | S3 | **Identifier clustering only triggers at ≥200 identifiers.** Below that, all identifiers go to one LLM dedup call. | `dedup.py` group_identifiers_for_representative | Large inputs OK; mid inputs send big prompts |
 | S4 | **No schema validation on LLM output.** Relies on dspy/pydantic coercion; malformed structures surface as downstream KeyErrors (cf. the C3 bug). | pipeline-wide | Brittle to model drift |
 | S5 | **Relevance scores are LLM self-reported**, then thresholded. No calibration. | NamedEntitiesRecognition | Threshold tuning is guesswork |
-| S6 | **Not standalone** — hard dependency on the `crewai_mvp`/`tangos_mvp` sibling (`TangosGenericSpecialist`, `Triangulation`, `TangosLogger`). | orchestrator imports | Can't deploy in isolation |
+| S6 | ~~**Not standalone** — hard dependency on the `crewai_mvp`/`tangos_mvp` sibling.~~ **RESOLVED:** the unused alternative-flow imports (`Triangulation`, generic specialist) were removed and the logger reimplemented natively; the engine now runs on `PYTHONPATH=src` alone. | orchestrator / logging | — |
 
 These are *research-grade modeling choices*, not crashes. Whether they matter
 depends on how much you trust the output for compliance decisions.
@@ -144,7 +144,7 @@ finding code where applicable. Effort: S<½day · M<2days · L>2days.
 | Item | Why | Effort |
 |---|---|---|
 | **FastAPI migration** | Routes are already `async`; FastAPI gives native async, request validation from the existing schemas, and OpenAPI docs for free. `create_app` factory makes this contained. | L |
-| **Decouple from `crewai_mvp`** | Hard sibling-path dependency blocks isolated deploy. Define an interface for the bits actually used (logger, specialist, triangulation) or vendor them. | L |
+| ~~**Decouple from `crewai_mvp`**~~ | **DONE.** The only live dependency was the logger (now native); the specialist/triangulation imports belonged to an unused alternative flow and were removed. Engine runs on `PYTHONPATH=src`. | — |
 | **Config hardening** | `config/settings.py` runs `argparse` at import (breaks under pytest/uvicorn workers). Move to `pydantic-settings`. | M |
 | **Containerize** | Pin the env that this verification established (Python 3.12 + the dep set incl. `flask[async]`, `sentence_transformers`, `python-Levenshtein`). Dockerfile + lockfile. | M |
 
@@ -156,7 +156,7 @@ finding code where applicable. Effort: S<½day · M<2days · L>2days.
 | **Observability** | Replace the `/tmp/graph_nodes_log.csv` append-per-request hack (M4) with structured logging + metrics (latency, LLM cost, nodes/run, error rate). | M4 | S–M |
 | **Cost controls** | Each request fans out many gpt-4.1 calls over every chunk. Add caching (dspy disk cache is currently *off*), token budgets, and chunk caps. | M |
 | **Graph visualization endpoint** | `visualize_graph` exists but is unwired; expose it (README roadmap item). | S |
-| **Regression test suite** | Turn `tests/run_smoke.py` into a proper pytest suite with recorded fixtures + tolerance assertions; fix `evaluate_tangraph_server.py` (L2 trailing-comma + hardcoded `/home/dimas` paths). | M |
+| **Regression test suite** | Turn `tests/run_smoke.py` into a proper pytest suite with recorded fixtures + tolerance assertions; fix `evaluate_investigator_server.py` (L2 trailing-comma + hardcoded `/home/dimas` paths). | M |
 | **Lint debt** | `analytics/` carries 27 baseline pyflakes warnings (L3); `dedup.py` uses `type() is` vs `isinstance` (L4). | S |
 
 ---

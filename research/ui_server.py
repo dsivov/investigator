@@ -5,7 +5,7 @@ Wraps the existing pipeline scripts; does not replace the OSINTGraph
 server itself (which still runs on :5003).
 
 Run:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp \\
+    PYTHONPATH=.:src \\
       /home/dsivov/.conda/envs/tangos/bin/python research/ui_server.py
 
 Default port 5050. Pass --port to change.
@@ -297,7 +297,7 @@ def _artifact_index(inv_id: str, json_path: Path) -> dict:
 JOBS_DIR = (ARTIFACTS_DIR.parent / "jobs").resolve()
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_CONCURRENT = int(os.environ.get("TANGRAPH_UI_MAX_CONCURRENT", "1"))
+MAX_CONCURRENT = int(os.environ.get("INVESTIGATOR_UI_MAX_CONCURRENT", "1"))
 
 # Idempotency: client may send Idempotency-Key header. Within IDEMP_TTL_SECS
 # we return the existing job; after the TTL the key is reusable.
@@ -425,7 +425,7 @@ def _drive_subprocess(job: Job, cmd: list[str], cwd: Path) -> None:
     """Run the cross_event_investigation.py subprocess, parse stdout, emit
     events, persist state on every transition, mirror stdout to a log file."""
     env = os.environ.copy()
-    extra_paths = [str(ROOT.parent), str(ROOT.parent / "src"), "/home/dsivov/Work/tangos_mvp"]
+    extra_paths = [str(ROOT.parent), str(ROOT.parent / "src")]
     env["PYTHONPATH"] = os.pathsep.join(extra_paths + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
     env["PYTHONUNBUFFERED"] = "1"
 

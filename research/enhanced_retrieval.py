@@ -28,7 +28,7 @@ hypothesis-scored evidence filter.
 
 Standalone (inspect the ranked pool without running the full pipeline):
 
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp \\
+    PYTHONPATH=.:src \\
       /home/dsivov/.conda/envs/tangos/bin/python research/enhanced_retrieval.py \\
       --query "Russia oil sanctions evasion" --domain sanctions_evasion \\
       --depth 2 --top-k 40 --period 30d
@@ -49,7 +49,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
 import domain_presets as dp                       # noqa: E402
-from evaluate_tangraph_server import is_publisher  # noqa: E402
+from evaluate_investigator_server import is_publisher  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-from crewai_mvp.src.triangulation_server.utils import jaccard_similarity_edges, jaccard_similarity_nodes, cosine_similarity_nodes, cosine_similarity_edges
+from investigator.graph.similarity import jaccard_similarity_edges, jaccard_similarity_nodes, cosine_similarity_nodes, cosine_similarity_edges
 from typing import List
 import json
 from wordllama import WordLlama

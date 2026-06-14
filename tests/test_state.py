@@ -4,7 +4,7 @@ Runs under pytest *or* standalone (the tangos conda env has no pytest):
 
     PYTHONPATH=.:src /home/dsivov/.conda/envs/tangos/bin/python tests/test_state.py
 
-Only imports tangraph.state (no dspy / embeddings), so it is fast and isolated.
+Only imports investigator.state (no dspy / embeddings), so it is fast and isolated.
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.state.ids import canonical_id  # noqa: E402
-from tangraph.state.investigation import InvestigationState  # noqa: E402
-from tangraph.state.records import EntityRecord  # noqa: E402
+from investigator.state.ids import canonical_id  # noqa: E402
+from investigator.state.investigation import InvestigationState  # noqa: E402
+from investigator.state.records import EntityRecord  # noqa: E402
 
 
 class FakeRepo:

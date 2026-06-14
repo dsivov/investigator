@@ -10,7 +10,7 @@ Verify ``filter_by_corroboration`` (graph/filter.py):
 Plus a golden-input sanity check (build_graph -> filter -> count surviving
 edges) to make sure source_count is being populated on real data.
 
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-py> tests/test_edge_filter.py
+    PYTHONPATH=.:src <tangos-py> tests/test_edge_filter.py
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.filter import filter_by_corroboration  # noqa: E402
-from tangraph.graph.operations import build_graph  # noqa: E402
+from investigator.graph.filter import filter_by_corroboration  # noqa: E402
+from investigator.graph.operations import build_graph  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 

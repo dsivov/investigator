@@ -7,7 +7,7 @@ defined in `research/ui_server.py` (port 5050 by default).
 
 ```sh
 # 1. Start the backend (in repo root)
-PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp \
+PYTHONPATH=.:src \
   /home/dsivov/.conda/envs/tangos/bin/python research/ui_server.py
 
 # 2. Install + start the frontend (in this directory)

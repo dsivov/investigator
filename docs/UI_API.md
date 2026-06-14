@@ -325,7 +325,7 @@ Codes the frontend should know about:
 ## Concurrency, persistence, and recovery
 
 - The backend processes investigations through a FIFO worker pool
-  (`TANGRAPH_UI_MAX_CONCURRENT`, default `1`). Each investigation
+  (`INVESTIGATOR_UI_MAX_CONCURRENT`, default `1`). Each investigation
   consumes the underlying OSINTGraph server's LLM-rate budget; running
   two in parallel does not improve wall-clock time, so the default
   cap is intentional. Raise the env var if you give the backing

@@ -1,4 +1,4 @@
-"""Unit tests for evaluate_tangraph_server.build_payload's title-only fallback.
+"""Unit tests for evaluate_investigator_server.build_payload's title-only fallback.
 
 Body extraction via newspaper3k fails 20-30% of the time on real news runs
 (paywall 403s, redirect loops, bot blocks). Without a fallback the article
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from evaluate_tangraph_server import build_payload  # noqa: E402
+from evaluate_investigator_server import build_payload  # noqa: E402
 
 
 def _article(title="", text="", error=None, publisher="Reuters",

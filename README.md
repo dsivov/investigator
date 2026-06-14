@@ -152,14 +152,14 @@ Three processes:
 ```
  ┌────────────────────┐   spawns    ┌──────────────────────┐   HTTP POST   ┌─────────────────────┐
  │  Frontend (Svelte) │  /api proxy │  UI backend (Flask)  │ ───────────▶  │  Pipeline engine     │
- │  Vite dev :5180    │ ──────────▶ │  research/ui_server  │               │  python -m tangraph  │
+ │  Vite dev :5180    │ ──────────▶ │  research/ui_server  │               │  python -m investigator  │
  │  graph / themes /  │             │  :5050  REST + SSE   │ ◀───────────  │  :5003               │
  │  data / report UI  │ ◀────────── │  job queue + reports │   graph JSON  │  NER · graph · TMFG  │
  └────────────────────┘             └──────────────────────┘               │  · belief propagation│
                                                                             └─────────────────────┘
 ```
 
-- **Pipeline engine** (`python -m tangraph`, port **5003**) — the core: entity +
+- **Pipeline engine** (`python -m investigator`, port **5003**) — the core: entity +
   event extraction (dspy + GPT-4.1), evidence consolidation, graph build, the
   corroboration filter, TMFG triangulation, and junction-tree belief propagation.
 - **UI backend** (`research/ui_server.py`, port **5050**) — REST + SSE API
@@ -179,11 +179,9 @@ Three processes:
 
 - **Python** environment with the pipeline dependencies: `dspy`, `networkx`,
   `flask`, `python-dotenv`, `gnews`, `newspaper3k`, `googlenewsdecoder`,
-  `semhash`, `wordllama`, `matplotlib`.
-- The pipeline engine imports two **external packages** that must be on
-  `PYTHONPATH` — `tangos_mvp` and `crewai_mvp` (the LightRAG-derived config +
-  triangulation tooling the engine is built on). Point `PYTHONPATH` at wherever
-  they live.
+  `semhash`, `wordllama`, `matplotlib`, `pymupdf`.
+- The engine is **self-contained**: run it with `PYTHONPATH=src` (the package
+  lives in `src/investigator`); no external sibling packages required.
 - **Node.js** (18+) for the frontend.
 - An **OpenAI API key**.
 
@@ -199,17 +197,17 @@ cp .env.example .env
 ### 2. Start the pipeline engine (port 5003)
 
 ```sh
-TANGRAPH_TMFG=1 TANGRAPH_VIZ=1 TANGRAPH_DISABLE_CACHE=1 \
-  PYTHONPATH=src:.:/path/to/tangos_mvp \
-  python -m tangraph
+INVESTIGATOR_TMFG=1 INVESTIGATOR_VIZ=1 INVESTIGATOR_DISABLE_CACHE=1 \
+  PYTHONPATH=src:. \
+  python -m investigator
 ```
 
-`TANGRAPH_TMFG=1` enables the theme/network-analysis stages.
+`INVESTIGATOR_TMFG=1` enables the theme/network-analysis stages.
 
 ### 3. Start the UI backend (port 5050)
 
 ```sh
-PYTHONPATH=.:src:/path/to/tangos_mvp python research/ui_server.py --port 5050
+PYTHONPATH=.:src python research/ui_server.py --port 5050
 ```
 
 It auto-discovers any past investigation artifacts under
@@ -230,17 +228,17 @@ Open **http://localhost:5180**.
 | Variable | Effect |
 |---|---|
 | `OPENAI_API_KEY` | LLM access (engine, and the UI's query-refinement endpoint). |
-| `TANGRAPH_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes tab). |
-| `TANGRAPH_DISABLE_CACHE=1` | Disable the LLM response cache. |
-| `TANGRAPH_TMFG_UNIFORM_WEIGHTS=1` | Restore the old topology-only theme weighting (default is evidence-aware). |
-| `TANGRAPH_UI_MAX_CONCURRENT` | Max concurrent investigations the UI backend runs (default 1). |
+| `INVESTIGATOR_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes tab). |
+| `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |
+| `INVESTIGATOR_TMFG_UNIFORM_WEIGHTS=1` | Restore the old topology-only theme weighting (default is evidence-aware). |
+| `INVESTIGATOR_UI_MAX_CONCURRENT` | Max concurrent investigations the UI backend runs (default 1). |
 
 ---
 
 ## Running an investigation from the CLI (no UI)
 
 ```sh
-PYTHONPATH=.:src:/path/to/tangos_mvp python research/cross_event_investigation.py \
+PYTHONPATH=.:src python research/cross_event_investigation.py \
   --domain sanctions_evasion --period 30d \
   --event "russia_oil:Russia oil sanctions evasion dark fleet 2026" \
   --event "china_yuan:China yuan settlement Russia trade sanctions 2026" \
@@ -258,7 +256,7 @@ python research/build_customer_report.py news_investigations/cross_event/<artifa
 ## Repository layout
 
 ```
-src/tangraph/            Pipeline engine: NER, graph build, dedup/merge,
+src/investigator/            Pipeline engine: NER, graph build, dedup/merge,
                          corroboration filter, TMFG, junction-tree BP.
 research/
   ui_server.py           UI backend (REST + SSE) — see docs/UI_API.md

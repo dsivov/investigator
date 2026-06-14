@@ -52,7 +52,7 @@ Stage counts down the pipeline (this run):
 ```
 
 Regenerate after intentional pipeline changes:
-`PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/capture_golden.py`.
+`PYTHONPATH=.:src <tangos-python> tests/capture_golden.py`.
 
 ---
 
@@ -453,7 +453,7 @@ Replaced the two broken filters with the confirmed model:
   degree-0 nodes — contradictory → never fired) is gone. `root` (the
   investigation main entity) is always kept as the anchor.
 - **`relevance_score = 0.7 ** hops_to_root`** over the clean affiliation graph
-  (`tangraph`); evidenced-but-unaffiliated entities pay `_EVIDENCE_HOP_COST = 2`.
+  (`investigator`); evidenced-but-unaffiliated entities pay `_EVIDENCE_HOP_COST = 2`.
 - **`score = relevance_score × prob`** (Decision C).
 - **Orphan edges dropped**; any survivor not connected to root via surviving
   edges is wired to it with a typed **`evidence`** edge → **G8 holds on the

@@ -4,8 +4,8 @@ Encodes the confirmed merge policy (M1 no-drop / max relevance, M2 prefer-best
 for single-valued, M3 distinct union for multi-valued) + the F3/F4 fixes, plus
 a golden regression (re-run dedup on the captured NER input).
 
-Imports tangraph.graph.dedup (loads WordLlama at import); run with the tangos env:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_stage2_dedup.py
+Imports investigator.graph.dedup (loads WordLlama at import); run with the tangos env:
+    PYTHONPATH=.:src <tangos-python> tests/test_stage2_dedup.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.dedup import _is_empty_value, merge_data_fields, merge_duplicate_group  # noqa: E402
+from investigator.graph.dedup import _is_empty_value, merge_data_fields, merge_duplicate_group  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 
@@ -106,7 +106,7 @@ def _run_golden_regression() -> None:
     try:
         from model2vec import StaticModel
 
-        from tangraph.graph.dedup import deduplicate_entities
+        from investigator.graph.dedup import deduplicate_entities
         sem = StaticModel.from_pretrained("minishlab/potion-multilingual-128M")
     except Exception as e:  # noqa: BLE001
         print(f"SKIP golden regression (models unavailable: {type(e).__name__})")

@@ -502,7 +502,7 @@ def main() -> int:
         f"PRODUCTION INCREASE TO 47 AIRCRAFT MONTHLY`). Despite a tightened NER prompt with an explicit "
         f"Decomposition rule, the LLM still admits some of these at scale. Filter them downstream OR push "
         f"the prompt rule harder OR add a length+verb heuristic guard at extraction time.\n"
-        f"3. **MostRepresentativeIdentifier bypass.** This run was made with `TANGRAPH_SKIP_MRI=1` because the "
+        f"3. **MostRepresentativeIdentifier bypass.** This run was made with `INVESTIGATOR_SKIP_MRI=1` because the "
         f"MRI step was previously folding distinct entities (Israel + Hamas + Haddad) under a single "
         f"headline canonical identifier. With MRI off, entities stay distinct but the existing "
         f"alias-merge in `merge_run_into_saved` still catches legitimate variants (`THE ACME FOUNDATION OF "

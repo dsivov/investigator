@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.dedup import (  # noqa: E402
+from investigator.graph.dedup import (  # noqa: E402
     dedup_events_by_signature,
     infer_event_temporal_edges,
 )

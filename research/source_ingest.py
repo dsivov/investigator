@@ -3,7 +3,7 @@ same article-dict shape the GNews fetcher produces, so they flow through the
 identical NER -> events -> graph pipeline.
 
 The pipeline consumes article dicts with these keys (see
-`evaluate_tangraph_server.fetch_news` / `build_payload`):
+`evaluate_investigator_server.fetch_news` / `build_payload`):
 
     {"title", "publisher", "real_url", "published_date", "text", "error"}
 

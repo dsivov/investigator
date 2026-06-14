@@ -23,7 +23,7 @@ class _Shim:
     """Minimal shim that exposes only the static-ish synthesise method."""
     def __init__(self):
         # Lazy import to avoid pulling the whole pipeline at module top
-        from tangraph.pipeline.orchestrator import InvestigationPipeline
+        from investigator.pipeline.orchestrator import InvestigationPipeline
         # Bind the method to this instance
         self._synthesise = InvestigationPipeline._synthesise_causal_claim_edges.__get__(self, type(self))
 

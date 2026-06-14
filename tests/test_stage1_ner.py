@@ -7,7 +7,7 @@ Two parts:
     (`get_entities`) mocked — needs the orchestrator import (heavy: loads
     embedding models), so it is skipped if that import fails.
 
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_stage1_ner.py
+    PYTHONPATH=.:src <tangos-python> tests/test_stage1_ner.py
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ class _FakeEntity:
 
 def _run_assembly_check() -> None:
     try:
-        import tangraph.pipeline.orchestrator as orch
+        import investigator.pipeline.orchestrator as orch
     except Exception as e:  # noqa: BLE001
         print(f"SKIP assembly check (orchestrator import failed: {type(e).__name__})")
         return

@@ -7,7 +7,7 @@ detail side panel, layout selector. Tailwind dark theme.
 No build step. No server needed. Open the file in a browser.
 
 Usage:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp \\
+    PYTHONPATH=.:src \\
       /home/dsivov/.conda/envs/tangos/bin/python \\
       research/build_graph_prototype.py <artifact.json>
 """

@@ -1,6 +1,6 @@
 """Unit tests for index-ified merge_run_into_saved + attach_relations_to_nodes (step 7).
 
-Imports tangraph.graph.dedup (loads WordLlama at import), so run with the
+Imports investigator.graph.dedup (loads WordLlama at import), so run with the
 tangos env:
 
     PYTHONPATH=.:src /home/dsivov/.conda/envs/tangos/bin/python tests/test_merge_and_relations.py
@@ -8,12 +8,13 @@ tangos env:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.dedup import attach_relations_to_nodes, merge_run_into_saved  # noqa: E402
+from investigator.graph.dedup import attach_relations_to_nodes, merge_run_into_saved  # noqa: E402
 
 
 def _node(identifier, rep=None, **kw):

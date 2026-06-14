@@ -10,8 +10,8 @@ The pipeline resolves the root in three steps (see _standard_pipeline):
 These tests cover the pure matcher `match_query_to_entity` (steps 1/2); the LLM
 distillation in step 2 is exercised by the e2e smoke.
 
-Imports tangraph.pipeline.orchestrator (heavy: loads dspy/model2vec); run with:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_resolve_root.py
+Imports investigator.pipeline.orchestrator (heavy: loads dspy/model2vec); run with:
+    PYTHONPATH=.:src <tangos-python> tests/test_resolve_root.py
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.pipeline.orchestrator import match_query_to_entity  # noqa: E402
+from investigator.pipeline.orchestrator import match_query_to_entity  # noqa: E402
 
 
 def _graph(*nodes):

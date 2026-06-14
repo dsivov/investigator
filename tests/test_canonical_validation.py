@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tangraph.graph.dedup import (  # noqa: E402
+from investigator.graph.dedup import (  # noqa: E402
     _is_valid_canonical,
     validate_entity_canonicals,
 )

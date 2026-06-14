@@ -14,7 +14,7 @@ This file has two layers:
     byte-for-byte (the reasoning text now carries the new annotation, which is
     asserted positively).
 
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp <tangos-python> tests/test_stage4_consolidator.py
+    PYTHONPATH=.:src <tangos-python> tests/test_stage4_consolidator.py
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import tangraph.pipeline.orchestrator as orch  # noqa: E402
-from tangraph.graph.operations import evidence_probability  # noqa: E402
+import investigator.pipeline.orchestrator as orch  # noqa: E402
+from investigator.graph.operations import evidence_probability  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "golden_stages.json.gz"
 

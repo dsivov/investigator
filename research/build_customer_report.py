@@ -16,7 +16,7 @@ Voice and structure:
     methodology sits at the end.
 
 Usage:
-    PYTHONPATH=.:src:/home/dsivov/Work/tangos_mvp \\
+    PYTHONPATH=.:src \\
       /home/dsivov/.conda/envs/tangos/bin/python research/build_customer_report.py \\
       news_investigations/cross_event/<artifact>.json
 """

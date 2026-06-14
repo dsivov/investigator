@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tangraph"
+name = "investigator"
 version = "1.0.0"
 description = "Triangulation Graph Server — entity/edge/evidence extraction for compliance & OSINT investigations"
 readme = "README.md"
@@ -33,9 +33,7 @@ dependencies = [
     "vicinity",
     "langchain-text-splitters",
 
-    # Transitive deps pulled in via the crewai_mvp sibling at runtime
-    # (TangosGenericSpecialist -> data_retrieval). Pinned here so a fresh
-    # env can actually serve a request.
+    # Similarity / fuzzy-match helpers used by the graph + dedup code.
     "sentence-transformers",
     "python-Levenshtein",
 
@@ -69,10 +67,10 @@ dev = [
 ]
 
 [project.scripts]
-tangraph = "tangraph.__main__:main"
+investigator = "investigator.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tangraph"]
+packages = ["src/investigator"]
 
 # --- Tooling configuration -------------------------------------------------
 
@@ -96,8 +94,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tangraph/analytics/*" = ["F", "E", "B", "UP", "I"]  # relocated as-is; cleanup in Phase 2
-"src/tangraph/config/settings.py" = ["I"]  # verbatim move from config.py; reorder deferred to Phase 2
+"src/investigator/analytics/*" = ["F", "E", "B", "UP", "I"]  # relocated as-is; cleanup in Phase 2
+"src/investigator/config/settings.py" = ["I"]  # verbatim move from config.py; reorder deferred to Phase 2
 
 [tool.ruff.lint.isort]
-known-first-party = ["tangraph"]
+known-first-party = ["investigator"]

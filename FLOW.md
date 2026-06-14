@@ -1,7 +1,7 @@
 # Graph-creation flow
 
 How one POST of source material becomes a scored, network-analysed graph.
-Traced from `src/tangraph/pipeline/orchestrator.py::_standard_pipeline`
+Traced from `src/investigator/pipeline/orchestrator.py::_standard_pipeline`
 (steps 1–7) plus the Phase 1–3 network-analysis stages and the
 cross-run merge.
 
@@ -36,7 +36,7 @@ flowchart TD
 
     subgraph SCORE["Step 6 — Evidence + triangulation"]
       ROOT["Resolve root<br/>(investigation subject)"]
-      TMFG["construct_tmfg(graph)<br/>(if TANGRAPH_TMFG=1)<br/>→ 4-clique themes + fill-in edges"]
+      TMFG["construct_tmfg(graph)<br/>(if INVESTIGATOR_TMFG=1)<br/>→ 4-clique themes + fill-in edges"]
       CONS["node_and_evidence_consolidator<br/>attach evidence RECORDS to entities<br/>node.evidence = [...]  (role ①)<br/>prob = evidence_probability(list)<br/>leaf = prob &gt; 0  (role ②)"]
       GATE["score_graph_by_connectivity<br/>relevance = DECAY ^ hops_to_root<br/>score = relevance × prob<br/>drop no-evidence / prob≤0 entities<br/>events bypass gates<br/>G8: wire orphans to root via<br/>type='evidence' edge  (role ③)"]
       BP["Phase 2 — junction_tree_propagate<br/>belief propagation over clique tree<br/>→ posteriors"]
