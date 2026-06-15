@@ -9,6 +9,7 @@
   import Data from "./tabs/Data.svelte";
   import Report from "./tabs/Report.svelte";
   import Sources from "./tabs/Sources.svelte";
+  import Help from "./tabs/Help.svelte";
   import ProgressPanel from "./ProgressPanel.svelte";
   import type { LiveProgress } from "./ProgressPanel.svelte";
   import { refreshInvestigations } from "../lib/store.svelte";
@@ -162,6 +163,7 @@
     { id: "data", label: "Data" },
     { id: "report", label: "Report" },
     { id: "sources", label: "Sources" },
+    { id: "help", label: "Help" },
   ];
 </script>
 
@@ -251,6 +253,8 @@
       <Report {id} {inv} />
     {:else if tab === "sources"}
       <Sources {id} />
+    {:else if tab === "help"}
+      <Help />
     {/if}
   {/if}
 </div>
