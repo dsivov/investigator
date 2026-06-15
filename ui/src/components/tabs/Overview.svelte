@@ -19,6 +19,19 @@
   const totalThreads = $derived((inv.threads ?? []).length);
   const colours = $derived(threadColourMap((inv.threads ?? []).map((t) => t.name)));
 
+  // A single-query investigation has no cross-thread structure (no bridges, no
+  // cross-themes), so the bridge/cross-theme panels would be empty. Show the
+  // subject's own network instead: top actors by score + top themes by weight.
+  const singleThread = $derived(totalThreads <= 1);
+  const topActors = $derived.by(() => {
+    if (!graph) return [];
+    // filter() returns a fresh array, so sorting it doesn't mutate $state.
+    return graph.nodes
+      .filter((n) => n.type === "entity")
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, 8);
+  });
+
   // Per-thread node counts derived from graph payload
   const perThread = $derived.by(() => {
     if (!graph) return {} as Record<string, number>;
@@ -49,16 +62,33 @@
   {/if}
 
   <div class="grid grid-cols-12 gap-5">
-    <!-- Bridges -->
+    <!-- Bridges (multi-thread) / Top actors (single-thread) -->
     <div class="col-span-7 rounded-xl border border-slate-800 bg-slate-900 p-5">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-slate-200 font-semibold">Cross-thread bridges</div>
+        <div class="text-slate-200 font-semibold">{singleThread ? "Top actors" : "Cross-thread bridges"}</div>
         <div class="text-xs text-slate-500">
-          {sum.bridges ?? "—"} bridge(s) · {sum.cross_event_themes ?? "—"} cross-thread themes
+          {#if singleThread}
+            ranked by relevance (score = relevance × confidence)
+          {:else}
+            {sum.bridges ?? "—"} bridge(s) · {sum.cross_event_themes ?? "—"} cross-thread themes
+          {/if}
         </div>
       </div>
       {#if !graph}
         <div class="text-slate-500 italic text-sm">Loading…</div>
+      {:else if singleThread}
+        {#if topActors.length === 0}
+          <div class="text-slate-500 italic text-sm">No actors extracted.</div>
+        {:else}
+          <div class="space-y-2 text-sm">
+            {#each topActors as a}
+              <div class="flex items-center justify-between border-b border-slate-800/60 py-1 last:border-0">
+                <span class="text-slate-100 font-semibold">{a.id}</span>
+                <span class="text-xs text-slate-500 mono">score {(a.score ?? 0).toFixed(2)}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {:else if graph.bridges.length === 0}
         <div class="text-slate-500 italic text-sm">No actor was attested across multiple threads.</div>
       {:else}
@@ -131,7 +161,7 @@
     <!-- Themes shortlist -->
     <div class="col-span-12 rounded-xl border border-slate-800 bg-slate-900 p-5">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-slate-200 font-semibold">Top cross-thread themes</div>
+        <div class="text-slate-200 font-semibold">{singleThread ? "Top themes" : "Top cross-thread themes"}</div>
         <button
           class="text-xs text-emerald-400 hover:underline"
           onclick={() => navigate(investigationUrl(inv.id, "tmfg"))}
@@ -142,9 +172,11 @@
       {#if !tmfg}
         <div class="text-slate-500 italic text-sm">Loading…</div>
       {:else}
-        {@const cross = tmfg.themes.filter((t) => t.isCross).slice(0, 6)}
+        {@const cross = singleThread
+          ? [...tmfg.themes].sort((a, b) => b.weight - a.weight).slice(0, 6)
+          : tmfg.themes.filter((t) => t.isCross).slice(0, 6)}
         {#if cross.length === 0}
-          <div class="text-slate-500 italic text-sm">No cross-thread themes.</div>
+          <div class="text-slate-500 italic text-sm">{singleThread ? "No themes." : "No cross-thread themes."}</div>
         {:else}
           <ol class="space-y-1.5 text-sm">
             {#each cross as t, i}
