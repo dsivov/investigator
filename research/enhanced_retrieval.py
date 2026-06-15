@@ -36,6 +36,7 @@ Standalone (inspect the ranked pool without running the full pipeline):
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from pathlib import Path
@@ -107,6 +108,31 @@ def _expand_queries(seed: str, domain_name: str, hypothesis: str, n: int) -> lis
         return []
 
 
+# Generic institutional / bridge entities crawl to unrelated cases when used
+# as search-deepening seeds: deepening retrieval on "International Criminal
+# Court" pulls in every other ICC case; on "District Court" or "Police", every
+# other case they handle. They still enter the graph from the articles -- they
+# are only barred from being *deepening seeds*. Excluded from depth-2+ turns.
+_INSTITUTIONAL_TOKENS = frozenset({
+    "court", "tribunal", "police", "prosecutor", "prosecution", "parliament",
+    "congress", "senate", "assembly", "knesset", "ministry", "agency",
+    "bureau", "interpol", "commission", "council", "directorate", "judiciary",
+})
+_INSTITUTIONAL_PHRASES = (
+    "international criminal court", "supreme court", "district court",
+    "high court", "attorney general", "department of justice", "united nations",
+)
+
+
+def _is_institutional(name: str) -> bool:
+    """True for generic judicial / law-enforcement / legislative institutions
+    that bridge across unrelated cases (poor deepening seeds)."""
+    n = name.lower()
+    if any(p in n for p in _INSTITUTIONAL_PHRASES):
+        return True
+    return bool(set(re.findall(r"[a-z]+", n)) & _INSTITUTIONAL_TOKENS)
+
+
 def _key_entities(titles: list[str], domain_name: str, n: int) -> list[str]:
     """LLM: a batch of titles -> the most investigation-relevant named
     entities (people / orgs / mechanisms) to deepen the search on."""
@@ -115,8 +141,10 @@ def _key_entities(titles: list[str], domain_name: str, n: int) -> list[str]:
     class KeyEntities(dspy.Signature):
         """From a list of news headlines, extract the named entities
         (people, organisations, mechanisms, places) most central to the
-        investigation domain. Return the most relevant first; exclude news
-        outlets / publishers. Plain names only."""
+        investigation domain. Return the most relevant first. Exclude news
+        outlets / publishers, AND generic institutions (courts, police,
+        parliaments, agencies, the ICC) -- those bridge to unrelated cases;
+        deepen on case-specific people and organisations only. Plain names."""
         headlines: list[str] = dspy.InputField()
         domain_name: str = dspy.InputField()
         how_many: int = dspy.InputField()
@@ -127,7 +155,9 @@ def _key_entities(titles: list[str], domain_name: str, n: int) -> list[str]:
             out = dspy.Predict(KeyEntities)(
                 headlines=titles[:40], domain_name=domain_name, how_many=n)
         ents = [e.strip() for e in (out.entities or [])
-                if e and e.strip() and not is_publisher(e.strip())]
+                if e and e.strip()
+                and not is_publisher(e.strip())
+                and not _is_institutional(e.strip())]
         return ents[:n]
     except Exception as e:  # noqa: BLE001
         print(f"[key-entities] LLM unavailable: {e}", file=sys.stderr)
