@@ -154,7 +154,7 @@ Three processes:
 ```
  ┌────────────────────┐   spawns    ┌──────────────────────┐   HTTP POST   ┌─────────────────────┐
  │  Frontend (Svelte) │  /api proxy │  UI backend (Flask)  │ ───────────▶  │  Pipeline engine     │
- │  Vite dev :5180    │ ──────────▶ │  research/ui_server  │               │  python -m investigator  │
+ │  Vite dev :5180    │ ──────────▶ │  ui/server  │               │  python -m investigator  │
  │  graph / themes /  │             │  :5050  REST + SSE   │ ◀───────────  │  :5003               │
  │  data / report UI  │ ◀────────── │  job queue + reports │   graph JSON  │  NER · graph · TMFG  │
  └────────────────────┘             └──────────────────────┘               │  · belief propagation│
@@ -164,7 +164,7 @@ Three processes:
 - **Pipeline engine** (`python -m investigator`, port **5003**) — the core: entity +
   event extraction (dspy + GPT-4.1), evidence consolidation, graph build, the
   corroboration filter, TMFG triangulation, and junction-tree belief propagation.
-- **UI backend** (`research/ui_server.py`, port **5050**) — REST + SSE API
+- **UI backend** (`ui/server.py`, port **5050**) — REST + SSE API
   (see [`docs/UI_API.md`](docs/UI_API.md)). Runs investigations as subprocesses
   that POST to the engine, streams progress, generates customer reports, and
   serves the Cytoscape-ready graph/theme payloads.
@@ -209,7 +209,7 @@ INVESTIGATOR_TMFG=1 INVESTIGATOR_VIZ=1 INVESTIGATOR_DISABLE_CACHE=1 \
 ### 3. Start the UI backend (port 5050)
 
 ```sh
-PYTHONPATH=.:src python research/ui_server.py --port 5050
+PYTHONPATH=.:src python ui/server.py --port 5050
 ```
 
 It auto-discovers any past investigation artifacts under
@@ -274,8 +274,8 @@ PYTHONPATH=.:src python research/cross_event_investigation.py \
 src/investigator/            Pipeline engine: NER, graph build, dedup/merge,
                          corroboration filter, TMFG, junction-tree BP.
 research/
-  ui_server.py           UI backend (REST + SSE) — see docs/UI_API.md
   cross_event_investigation.py   CLI driver for a multi-query run
+  enhanced_retrieval.py          Query-expansion + rerank + entity-deepening
   build_customer_report.py       Analyst-grade markdown report generator
   build_graph_prototype.py       Cytoscape graph-payload + standalone prototype
   build_tmfg_prototype.py        TMFG-themes payload + standalone prototype
@@ -283,6 +283,7 @@ research/
   build_blog_post.py             Generates the illustrated blog post
   domain_presets.py              Per-domain relevance hypotheses
 ui/                      Svelte 5 + Vite frontend (the investigator UI)
+  server.py              UI backend (REST + SSE) — see docs/UI_API.md
 docs/
   UI_API.md              REST + SSE contract
   images/                README figures

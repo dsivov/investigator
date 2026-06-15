@@ -6,7 +6,7 @@ server itself (which still runs on :5003).
 
 Run:
     PYTHONPATH=.:src \\
-      /home/dsivov/.conda/envs/tangos/bin/python research/ui_server.py
+      /home/dsivov/.conda/envs/tangos/bin/python ui/server.py
 
 Default port 5050. Pass --port to change.
 
@@ -35,10 +35,12 @@ from pathlib import Path
 from flask import Flask, Response, abort, jsonify, request, send_file
 
 # Reuse the payload builders so the frontend gets exactly the shape it
-# already consumes from the inline prototype.
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT.parent / "src"))
+# already consumes from the inline prototype. This server lives in ui/ but
+# reuses the analysis scripts in research/, so put research/ (+ src) on the path.
+ROOT = Path(__file__).resolve().parent           # ui/
+REPO = ROOT.parent                               # repo root
+sys.path.insert(0, str(REPO / "research"))
+sys.path.insert(0, str(REPO / "src"))
 
 import build_graph_prototype as bg        # noqa: E402
 import build_tmfg_prototype as bt         # noqa: E402
@@ -1050,7 +1052,7 @@ def create_investigation():
             "extraSources": {"urls": extra_urls, "pdfs": extra_pdf_ids}}
 
     # Build the subprocess command line that drives cross_event_investigation.py
-    cmd = [sys.executable, "research/cross_event_investigation.py",
+    cmd = [sys.executable, str(REPO / "research" / "cross_event_investigation.py"),
            "--domain", domain_key, "--period", period,
            "--stage1-articles", str(adv.get("stage1Articles", 50)),
            "--stage2-articles-per-entity", str(adv.get("stage2ArticlesPerEntity", 20)),

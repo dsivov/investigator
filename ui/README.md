@@ -1,14 +1,14 @@
 # OSINTGraph UI
 
 Svelte 5 + TypeScript + Vite + Tailwind. Talks to the Flask backend
-defined in `research/ui_server.py` (port 5050 by default).
+defined in `ui/server.py` (port 5050 by default).
 
 ## Run locally
 
 ```sh
 # 1. Start the backend (in repo root)
 PYTHONPATH=.:src \
-  /home/dsivov/.conda/envs/tangos/bin/python research/ui_server.py
+  /home/dsivov/.conda/envs/tangos/bin/python ui/server.py
 
 # 2. Install + start the frontend (in this directory)
 pnpm install        # or npm install / yarn
@@ -95,4 +95,4 @@ Every API call lives in `src/lib/api.ts`. Adding a new endpoint:
 
 1. Append the type to `src/lib/types.ts`
 2. Append the method to `src/lib/api.ts`
-3. Backend endpoint goes in `research/ui_server.py`
+3. Backend endpoint goes in `ui/server.py`

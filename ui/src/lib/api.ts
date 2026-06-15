@@ -1,5 +1,5 @@
 // Thin fetch wrapper around the Flask backend defined in
-// research/ui_server.py and documented in docs/UI_API.md.
+// ui/server.py and documented in docs/UI_API.md.
 //
 // All paths start with /api so the Vite dev proxy and a same-origin
 // production deployment both work without changes.

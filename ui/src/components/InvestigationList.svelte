@@ -78,7 +78,7 @@
     <div class="text-red-400 text-sm">Failed to load investigations: {error}</div>
     <div class="text-slate-500 text-xs mt-2">
       Is the backend running? Try
-      <code class="mono">python research/ui_server.py</code>.
+      <code class="mono">python ui/server.py</code>.
     </div>
   {:else if rows.length === 0}
     <div class="text-slate-500 text-sm italic">No investigations yet.</div>
