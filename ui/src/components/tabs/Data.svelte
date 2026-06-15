@@ -8,7 +8,12 @@
   let graph = $state<GraphPayload | null>(null);
   let view = $state<"entities" | "events" | "relationships" | "evidence">("entities");
   let q = $state("");
-  let sortKey = $state("evidenceCount");
+  // Default the Actors view to `score` (relevance × prob = distance-to-subject
+  // weighted), not raw evidence count: on a broad single-subject query, raw
+  // prob/evidence floats topically-related-but-off-subject entities to the top
+  // (e.g. unrelated corruption cases), while `score` keeps the subject's own
+  // network on top.
+  let sortKey = $state("score");
   let sortDir = $state<"asc" | "desc">("desc");
   const colours = $derived(graph ? threadColourMap(graph.runs) : {});
 
