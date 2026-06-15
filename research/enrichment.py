@@ -7,9 +7,11 @@ as `node["enrichment"][<provider>]`. Writes `<artifact>.enriched.json`.
 Providers (first cut):
   * edgar        — SEC EDGAR (free, no key): US public-company filings/identity.
   * openregistry — 30 national company registries via the hosted OpenRegistry
-                   MCP (beneficial owners / officers / shareholders). Needs a
-                   one-time OAuth bootstrap token in INVESTIGATOR_OPENREGISTRY_TOKEN;
-                   no-ops cleanly without it.
+                   MCP (beneficial owners / officers / shareholders). Auth is
+                   OAuth 2.1 + DCR with token auto-refresh (tokens persisted to
+                   a file). Bootstrap once with `--openregistry-login`; no-ops
+                   cleanly until then. A static INVESTIGATOR_OPENREGISTRY_TOKEN
+                   bearer also works as an override.
 
 Design notes:
   - Decoupled: runs on the artifact AFTER the (offline, deterministic) engine,
@@ -21,6 +23,7 @@ Design notes:
     cached by (name, provider) so re-runs and repeated names don't re-hit.
 
 Usage:
+    PYTHONPATH=.:src python research/enrichment.py --openregistry-login   # one-time
     PYTHONPATH=.:src python research/enrichment.py <artifact.json> [--top-n 12]
         [--no-edgar] [--no-openregistry]
 """
@@ -159,21 +162,161 @@ def edgar_applies(node: dict, domain: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Provider: OpenRegistry (hosted MCP, OAuth 2.1) -- 30 national registries
+# Provider: OpenRegistry (hosted MCP, OAuth 2.1 + DCR with auto-refresh) --
+# 30 national registries. Tokens are persisted to a file so the access token
+# refreshes itself across runs; a one-time interactive `--openregistry-login`
+# bootstraps the OAuth grant. A static INVESTIGATOR_OPENREGISTRY_TOKEN bearer
+# still works as an override (e.g. for testing).
 # ---------------------------------------------------------------------------
 
 _OPENREGISTRY_URL = os.environ.get(
     "INVESTIGATOR_OPENREGISTRY_URL", "https://openregistry.sophymarine.com/mcp")
 # Free tier is 30 rpm; keep a margin.
 _OPENREGISTRY_MIN_INTERVAL = 2.2
+_OAUTH_DIR = Path(os.environ.get(
+    "INVESTIGATOR_OAUTH_DIR", str(Path.home() / ".config" / "investigator")))
+_OAUTH_FILE = _OAUTH_DIR / "openregistry_oauth.json"
+_OAUTH_CALLBACK_PORT = int(os.environ.get("INVESTIGATOR_OAUTH_CALLBACK_PORT", "8765"))
+
+
+class _FileTokenStorage:
+    """mcp TokenStorage backed by a JSON file: persists the OAuth tokens and
+    the dynamic client registration so the access token auto-refreshes across
+    runs without re-authorising."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def _load(self) -> dict:
+        return json.loads(self.path.read_text()) if self.path.exists() else {}
+
+    def _save(self, d: dict):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(d))
+
+    async def get_tokens(self):
+        from mcp.shared.auth import OAuthToken
+        raw = self._load().get("tokens")
+        return OAuthToken(**raw) if raw else None
+
+    async def set_tokens(self, tokens):
+        d = self._load(); d["tokens"] = tokens.model_dump(mode="json"); self._save(d)
+
+    async def get_client_info(self):
+        from mcp.shared.auth import OAuthClientInformationFull
+        raw = self._load().get("client_info")
+        return OAuthClientInformationFull(**raw) if raw else None
+
+    async def set_client_info(self, info):
+        d = self._load(); d["client_info"] = info.model_dump(mode="json"); self._save(d)
+
+
+def _interactive_oauth_handlers():
+    """Browser-redirect + local-callback handlers for the one-time login."""
+    import urllib.parse
+    import webbrowser
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    captured: dict = {}
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            captured["code"] = (qs.get("code") or [None])[0]
+            captured["state"] = (qs.get("state") or [None])[0]
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OpenRegistry authorized. You can close this tab.")
+
+        def log_message(self, *a):  # silence the dev server
+            pass
+
+    async def redirect_handler(url: str):
+        print(f"\n[openregistry] Authorize access in your browser:\n  {url}\n")
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 -- headless: just print the URL
+            pass
+
+    async def callback_handler():
+        import asyncio
+        srv = HTTPServer(("localhost", _OAUTH_CALLBACK_PORT), _Handler)
+        await asyncio.get_event_loop().run_in_executor(None, srv.handle_request)
+        srv.server_close()
+        return captured.get("code"), captured.get("state")
+
+    return redirect_handler, callback_handler
+
+
+def _build_openregistry_auth(interactive: bool):
+    from mcp.client.auth import OAuthClientProvider
+    from mcp.shared.auth import OAuthClientMetadata
+    metadata = OAuthClientMetadata(
+        client_name="Investigator OSINT",
+        redirect_uris=[f"http://localhost:{_OAUTH_CALLBACK_PORT}/callback"],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+    )
+    if interactive:
+        redirect_handler, callback_handler = _interactive_oauth_handlers()
+    else:
+        async def redirect_handler(url):  # noqa: ARG001
+            raise RuntimeError(
+                "OpenRegistry OAuth not bootstrapped. Run once: "
+                "python research/enrichment.py --openregistry-login")
+
+        async def callback_handler():
+            raise RuntimeError("OpenRegistry OAuth not bootstrapped.")
+    return OAuthClientProvider(
+        server_url=_OPENREGISTRY_URL,
+        client_metadata=metadata,
+        storage=_FileTokenStorage(_OAUTH_FILE),
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+
+
+def _openregistry_available() -> bool:
+    """OpenRegistry is usable when either a static bearer override is set or the
+    OAuth grant has been bootstrapped to the token file."""
+    return bool(os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN")) or _OAUTH_FILE.exists()
+
+
+def _openregistry_client_kwargs() -> dict:
+    """Static bearer header if provided, otherwise the self-refreshing OAuth
+    provider loaded from the persisted token file."""
+    token = os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN")
+    if token:
+        return {"headers": {"Authorization": f"Bearer {token}"}}
+    return {"auth": _build_openregistry_auth(interactive=False)}
+
+
+def openregistry_login() -> None:
+    """One-time interactive OAuth bootstrap: authorise in the browser and store
+    the tokens (incl. refresh token) so later runs are hands-off."""
+    import asyncio
+
+    async def _run():
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+        async with streamablehttp_client(
+                _OPENREGISTRY_URL, auth=_build_openregistry_auth(interactive=True)) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                print(f"[openregistry] authorized; {len(tools.tools)} tools available.")
+
+    asyncio.run(_run())
+    print(f"Tokens stored at {_OAUTH_FILE}. OpenRegistry enrichment is now active "
+          "(access token auto-refreshes).")
 
 
 def openregistry_enrich(node: dict) -> dict | None:
     """Beneficial owners / officers / shareholders for a company via the
-    OpenRegistry MCP. Requires a bootstrapped OAuth token in
-    INVESTIGATOR_OPENREGISTRY_TOKEN; returns None (no-op) without it."""
-    token = os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN")
-    if not token:
+    OpenRegistry MCP. No-ops until OAuth is bootstrapped (or a static token is
+    set)."""
+    if not _openregistry_available():
         return None
     import asyncio
 
@@ -183,8 +326,7 @@ def openregistry_enrich(node: dict) -> dict | None:
     async def _run():
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
-        headers = {"Authorization": f"Bearer {token}"}
-        async with streamablehttp_client(_OPENREGISTRY_URL, headers=headers) as (read, write, _):
+        async with streamablehttp_client(_OPENREGISTRY_URL, **_openregistry_client_kwargs()) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 
@@ -303,11 +445,18 @@ def enrich_artifact(path: Path, *, top_n: int = 12,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("artifact", help="path to cross_*.json investigation artifact")
+    ap.add_argument("artifact", nargs="?", help="path to cross_*.json investigation artifact")
     ap.add_argument("--top-n", type=int, default=12)
     ap.add_argument("--no-edgar", action="store_true")
     ap.add_argument("--no-openregistry", action="store_true")
+    ap.add_argument("--openregistry-login", action="store_true",
+                    help="one-time interactive OAuth bootstrap for OpenRegistry, then exit")
     a = ap.parse_args()
+    if a.openregistry_login:
+        openregistry_login()
+        return 0
+    if not a.artifact:
+        ap.error("artifact is required (or pass --openregistry-login)")
     enabled = set(_PROVIDERS)
     if a.no_edgar:
         enabled.discard("edgar")
