@@ -177,6 +177,94 @@ class SourceRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Subject-aware helpers (single-query investigations have no cross-thread
+# bridges/themes, so the report is driven by the subject's own network instead:
+# entities ranked by `score` = relevance-to-subject × confidence).
+# ---------------------------------------------------------------------------
+
+def _single_thread(d: dict) -> bool:
+    return len(d.get("events", []) or []) <= 1
+
+
+def _entities_by_score(final: dict, n: int) -> list[dict]:
+    ents = [x for x in final.get("nodes", []) if x.get("type") != "event"]
+    return sorted(ents, key=lambda x: -(x.get("score") or 0.0))[:n]
+
+
+def _edges_by_node_index(edges: list[dict]) -> dict:
+    idx: dict[str, list[dict]] = defaultdict(list)
+    for e in edges:
+        if e.get("type") not in ("affiliation",):   # event_participation is noisy here
+            continue
+        s = e.get("src_identifier"); t = e.get("dst_identifier")
+        if s:
+            idx[s].append(e)
+        if t:
+            idx[t].append(e)
+    return idx
+
+
+def _entity_header_lines(node: dict, ident: str) -> list[str]:
+    """Other-names / role / location lines shared by every entity profile."""
+    out: list[str] = []
+    raw_labels = node.get("labels") or []
+    if isinstance(raw_labels, str):
+        raw_labels = [raw_labels]
+    labels = []
+    for lab in raw_labels:
+        if isinstance(lab, list) and lab:
+            lab = lab[0]
+        lab = str(lab).strip()
+        if lab and lab.upper() != ident.upper() and lab not in labels:
+            labels.append(lab)
+    if labels:
+        out.append(f"**Other names / labels:** {', '.join(labels[:5])}.")
+    if not _is_country_like(node):
+        data = node.get("data") or {}
+        position = data.get("position")
+        location = data.get("location")
+        if isinstance(position, str) and position.strip() and \
+           position.lower() not in {"unknown", "not found", "n/a"}:
+            out.append(f"**Role:** {position}.")
+        if isinstance(location, str) and location.strip() and \
+           location.lower() not in {"unknown", "not found", "n/a"}:
+            out.append(f"**Location / jurisdiction:** {location}.")
+    out.append("")
+    return out
+
+
+def _relationship_lines(ident: str, edges_by_node: dict, sr) -> list[str]:
+    """The 'Key attested relationships' block for one entity (pulled from edges
+    so each carries its source + context)."""
+    my_edges = edges_by_node.get(ident, [])
+    seen = set()
+    rows = []
+    for e in my_edges:
+        other = e["dst_identifier"] if e.get("src_identifier") == ident else e.get("src_identifier")
+        if not other or other == ident:
+            continue
+        rtype, ctx = _edge_context(e)
+        key = (other, ctx[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        direction = "→" if e.get("src_identifier") == ident else "←"
+        rows.append((rtype, direction, other, ctx, _edge_source_url(e)))
+    rows.sort(key=lambda r: (0 if r[3] else 1, -len(r[3])))
+    out: list[str] = []
+    if rows:
+        out.append("**Key attested relationships:**\n")
+        for rtype, direction, other, ctx, url in rows[:6]:
+            cite = sr.cite(url)
+            rtype_str = f" _{rtype}_" if rtype and rtype != "unknown" else ""
+            ctx_short = (ctx[:220].rstrip() + "…") if len(ctx) > 220 else ctx
+            ctx_str = f" — {ctx_short}" if ctx_short else ""
+            out.append(f"- {direction}{rtype_str} **{other}**{ctx_str} {cite}")
+        out.append("")
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Section builders
 # ---------------------------------------------------------------------------
 
@@ -193,6 +281,42 @@ def _executive_summary(d: dict, sr: SourceRegistry, domain_label: str,
 
     lines = []
     lines.append("## Executive Summary\n")
+
+    # Single-subject investigation: no cross-thread bridges, so summarise the
+    # subject's own network (entities ranked by relevance-to-subject).
+    if _single_thread(d):
+        nodes = final["nodes"]
+        ent_nodes = [n for n in nodes if n.get("type") != "event"]
+        event_nodes = [n for n in nodes if n.get("type") == "event"]
+        themes = final.get("themes", []) or []
+        top = _entities_by_score(final, 6)
+        subject = top[0]["identifier"] if top else (run_labels[0] if run_labels else "the subject")
+        actor_list = ", ".join(f"**{n['identifier']}**" for n in top[1:6]) or "—"
+        lines.append(
+            f"This report maps the open-source network around **{subject}**: "
+            f"the actors, organisations, and events most central to the subject "
+            f"and the relationships attested between them. Entities are ranked by "
+            f"a relevance score (proximity to the subject × evidential "
+            f"confidence), so the profiles below reflect the subject's own "
+            f"network rather than topically-adjacent but unrelated material.\n"
+        )
+        lines.append(
+            f"The investigation surfaced **{len(ent_nodes)}** actors, "
+            f"**{len(event_nodes)}** events, and **{len(themes)}** network "
+            f"themes. After {subject} itself, the most central actors are "
+            f"{actor_list}.\n"
+        )
+        lines.append("### Key Findings\n")
+        for i, n in enumerate(top[:5], 1):
+            ev_n = n.get("evidence_count") or 0
+            tail = f"; {ev_n} attesting article(s)" if ev_n else ""
+            lines.append(
+                f"{i}. **{n['identifier']}** — relevance score "
+                f"{(n.get('score') or 0.0):.2f}{tail}."
+            )
+        lines.append("")
+        lines.append("---\n")
+        return "\n".join(lines)
 
     # Opening paragraph
     storylines = ", ".join(f'_"{l}"_' for l in run_labels)
@@ -358,20 +482,37 @@ def _key_entities(d: dict, sr: SourceRegistry) -> str:
     final = d["final_merged_graph"]
     nodes_by_id = {n["identifier"]: n for n in final["nodes"]}
     bridges = final.get("bridging_entities", []) or []
-    edges = final["edges"]
     n_runs_total = len(d.get("events", []))
+    edges_by_node = _edges_by_node_index(final["edges"])
 
-    # Index edges by either endpoint, type-filtered to those with real semantics.
-    edges_by_node: dict[str, list[dict]] = defaultdict(list)
-    for e in edges:
-        if e.get("type") not in ("affiliation",):   # event_participation is noisy here
-            continue
-        s = e.get("src_identifier"); t = e.get("dst_identifier")
-        if s: edges_by_node[s].append(e)
-        if t: edges_by_node[t].append(e)
+    lines = ["\n## 2. Key Entities\n"]
 
-    lines = []
-    lines.append("\n## 2. Key Entities\n")
+    # Single-subject investigation: profile the entities most central to the
+    # subject (ranked by score) instead of cross-thread bridges (which don't
+    # exist for a single thread).
+    if _single_thread(d):
+        profiled = _entities_by_score(final, 8)
+        if not profiled:
+            lines.append("No entities were extracted for this investigation.\n")
+            return "\n".join(lines)
+        lines.append(
+            "The entities below are the most central to the investigation "
+            "subject, ranked by relevance score (proximity to the subject × "
+            "evidential confidence). Source citations refer to the References "
+            "section.\n"
+        )
+        for node in profiled:
+            ident = node["identifier"]
+            ev_n = node.get("evidence_count") or 0
+            ev_str = f" {ev_n} attesting article(s)." if ev_n else ""
+            lines.append(f"### {ident}\n")
+            lines.append(
+                f"_Relevance score **{(node.get('score') or 0.0):.2f}**.{ev_str}_\n"
+            )
+            lines.extend(_entity_header_lines(node, ident))
+            lines.extend(_relationship_lines(ident, edges_by_node, sr))
+        return "\n".join(lines)
+
     if not bridges:
         lines.append(
             "No entity was attested across multiple investigative threads "
@@ -401,66 +542,8 @@ def _key_entities(d: dict, sr: SourceRegistry) -> str:
         scope_phrase = ("all " + str(n_runs_total)) if n_b >= n_runs_total else f"{n_b} of {n_runs_total}"
         lines.append(f"_Attested in {scope_phrase} thread(s). "
                      f"Structural confidence: **{conf}**. {evidence_count} attesting article(s)._\n")
-
-        # Other names / labels
-        raw_labels = node.get("labels") or []
-        if isinstance(raw_labels, str):
-            raw_labels = [raw_labels]
-        labels = []
-        for lab in raw_labels:
-            if isinstance(lab, list) and lab:
-                lab = lab[0]
-            lab = str(lab).strip()
-            if lab and lab.upper() != ident.upper() and lab not in labels:
-                labels.append(lab)
-        if labels:
-            lines.append(f"**Other names / labels:** {', '.join(labels[:5])}.")
-
-        # Country/place nodes get polluted person-fields after merging; skip
-        # them. For org/person nodes, surface real role/location if known.
-        if not _is_country_like(node):
-            data = node.get("data") or {}
-            position = data.get("position")
-            location = data.get("location")
-            if isinstance(position, str) and position.strip() and \
-               position.lower() not in {"unknown", "not found", "n/a"}:
-                lines.append(f"**Role:** {position}.")
-            if isinstance(location, str) and location.strip() and \
-               location.lower() not in {"unknown", "not found", "n/a"}:
-                lines.append(f"**Location / jurisdiction:** {location}.")
-        lines.append("")
-
-        # Top attested relationships (pull from EDGES — they carry sources
-        # and context that the node.data.relations field does not)
-        my_edges = edges_by_node.get(ident, [])
-        # Dedup on (counterparty, context) and keep ones with context first
-        seen = set()
-        relationship_rows = []
-        for e in my_edges:
-            other_side = e["dst_identifier"] if e.get("src_identifier") == ident else e.get("src_identifier")
-            if not other_side or other_side == ident:
-                continue
-            rtype, ctx = _edge_context(e)
-            key = (other_side, ctx[:80])
-            if key in seen:
-                continue
-            seen.add(key)
-            url = _edge_source_url(e)
-            direction = "→" if e.get("src_identifier") == ident else "←"
-            relationship_rows.append((rtype, direction, other_side, ctx, url))
-
-        # Order: rows with context first, then no-context
-        relationship_rows.sort(key=lambda r: (0 if r[3] else 1, -len(r[3])))
-
-        if relationship_rows:
-            lines.append("**Key attested relationships:**\n")
-            for rtype, direction, other, ctx, url in relationship_rows[:6]:
-                cite = sr.cite(url)
-                rtype_str = f" _{rtype}_" if rtype and rtype != "unknown" else ""
-                ctx_short = (ctx[:220].rstrip() + "…") if len(ctx) > 220 else ctx
-                ctx_str = f" — {ctx_short}" if ctx_short else ""
-                lines.append(f"- {direction}{rtype_str} **{other}**{ctx_str} {cite}")
-            lines.append("")
+        lines.extend(_entity_header_lines(node, ident))
+        lines.extend(_relationship_lines(ident, edges_by_node, sr))
 
     return "\n".join(lines)
 
@@ -468,10 +551,17 @@ def _key_entities(d: dict, sr: SourceRegistry) -> str:
 def _network_map(d: dict, sr: SourceRegistry) -> str:
     final = d["final_merged_graph"]
     edges = final["edges"]
-    cross_themes = sorted(
-        [t for t in final.get("themes", []) or [] if t.get("is_cross_investigation")],
-        key=lambda t: -(t.get("weight") or 0.0),
-    )
+    themes_all = final.get("themes", []) or []
+    single = _single_thread(d)
+    # Multi-thread: only cross-thread themes are interesting. Single-subject:
+    # there are none, so show the highest-weight themes overall.
+    if single:
+        themes_to_show = sorted(themes_all, key=lambda t: -(t.get("weight") or 0.0))
+    else:
+        themes_to_show = sorted(
+            [t for t in themes_all if t.get("is_cross_investigation")],
+            key=lambda t: -(t.get("weight") or 0.0),
+        )
 
     # Index attested edges by unordered member pair so we can show the
     # relationships that bind a theme's four members + cite their sources.
@@ -486,12 +576,11 @@ def _network_map(d: dict, sr: SourceRegistry) -> str:
 
     lines = []
     lines.append("\n## 3. Network Themes\n")
-    if not cross_themes:
+    if not themes_to_show:
         lines.append(
-            "No theme spans more than one investigative thread in the "
-            "current corpus. This is uncommon for an investigation of "
-            "this scope and likely reflects sparse source attestation; "
-            "an extended corpus is recommended.\n"
+            "No network themes were formed in the current corpus. This is "
+            "uncommon for an investigation of this scope and likely reflects "
+            "sparse source attestation; an extended corpus is recommended.\n"
         )
         return "\n".join(lines)
 
@@ -506,14 +595,17 @@ def _network_map(d: dict, sr: SourceRegistry) -> str:
         "that no single article states are marked _(structural inference)_.\n"
     )
 
-    for i, t in enumerate(cross_themes[:6], 1):
+    for i, t in enumerate(themes_to_show[:6], 1):
         members = [str(m) for m in (t.get("members") or [])]
         weight = t.get("weight") or 0.0
-        runs = t.get("runs_spanned") or []
-        scope = "all three threads" if len(runs) >= 3 else f"{len(runs)} of the threads"
+        if single:
+            scope_line = f"_Evidence-weighted score {weight:.1f}._\n"
+        else:
+            runs = t.get("runs_spanned") or []
+            scope = "all three threads" if len(runs) >= 3 else f"{len(runs)} of the threads"
+            scope_line = f"_Spans {scope}; evidence-weighted score {weight:.1f}._\n"
         lines.append(
-            f"\n### Theme {i}: {' · '.join(members)}\n"
-            f"_Spans {scope}; evidence-weighted score {weight:.1f}._\n"
+            f"\n### Theme {i}: {' · '.join(members)}\n" + scope_line
         )
 
         # Walk the 6 member pairs; surface attested relationships + cite.
@@ -549,8 +641,9 @@ def _network_map(d: dict, sr: SourceRegistry) -> str:
                 f"directly): {pairs}._\n"
             )
 
-    if len(cross_themes) > 6:
-        lines.append(f"\n_({len(cross_themes) - 6} further cross-thread themes "
+    if len(themes_to_show) > 6:
+        kind = "themes" if single else "cross-thread themes"
+        lines.append(f"\n_({len(themes_to_show) - 6} further {kind} "
                      "in the underlying dataset.)_\n")
     return "\n".join(lines)
 
