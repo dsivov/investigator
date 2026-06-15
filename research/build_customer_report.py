@@ -264,6 +264,34 @@ def _relationship_lines(ident: str, edges_by_node: dict, sr) -> list[str]:
     return out
 
 
+def _enrichment_lines(node: dict, sr) -> list[str]:
+    """External-records block (post-run enrichment: SEC EDGAR / OpenRegistry),
+    present only when the artifact was run through research/enrichment.py."""
+    enr = node.get("enrichment") or {}
+    if not enr:
+        return []
+    out = ["**External records:**"]
+    ed = enr.get("edgar")
+    if ed:
+        cite = sr.cite((ed.get("_provenance") or {}).get("url"))
+        forms = ", ".join(f"{f.get('form')} ({f.get('date')})"
+                          for f in (ed.get("recent_filings") or [])[:3])
+        extra = f"; recent filings: {forms}" if forms else ""
+        out.append(f"- SEC filer: **{ed.get('matched_name')}** "
+                   f"({ed.get('ticker')}, CIK {ed.get('cik')}){extra}. {cite}")
+    orr = enr.get("openregistry")
+    if orr:
+        cite = sr.cite((orr.get("_provenance") or {}).get("url"))
+        bo = orr.get("beneficial_owners")
+        n_bo = len(bo.get("items", [])) if isinstance(bo, dict) else (len(bo) if isinstance(bo, list) else 0)
+        bo_str = f"; {n_bo} beneficial owner(s) on file" if n_bo else ""
+        out.append(f"- Registry record ({orr.get('jurisdiction')}): "
+                   f"**{orr.get('matched_name')}** [{orr.get('company_id')}], "
+                   f"status {orr.get('status')}{bo_str}. {cite}")
+    out.append("")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Section builders
 # ---------------------------------------------------------------------------
@@ -492,6 +520,14 @@ def _key_entities(d: dict, sr: SourceRegistry) -> str:
     # exist for a single thread).
     if _single_thread(d):
         profiled = _entities_by_score(final, 8)
+        # Always profile entities we obtained external records for, even if they
+        # rank below the score cutoff (a company's registry/financials record is
+        # worth showing regardless of its proximity rank).
+        seen = {n["identifier"] for n in profiled}
+        for n in sorted(final.get("nodes", []), key=lambda x: -(x.get("score") or 0.0)):
+            if n.get("enrichment") and n["identifier"] not in seen:
+                profiled.append(n)
+                seen.add(n["identifier"])
         if not profiled:
             lines.append("No entities were extracted for this investigation.\n")
             return "\n".join(lines)
@@ -511,6 +547,7 @@ def _key_entities(d: dict, sr: SourceRegistry) -> str:
             )
             lines.extend(_entity_header_lines(node, ident))
             lines.extend(_relationship_lines(ident, edges_by_node, sr))
+            lines.extend(_enrichment_lines(node, sr))
         return "\n".join(lines)
 
     if not bridges:
