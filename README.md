@@ -268,6 +268,42 @@ PYTHONPATH=.:src python research/cross_event_investigation.py \
 
 ---
 
+## Enriching entities (optional)
+
+After a run, `research/enrichment.py` can attach external records to the top
+company (`ORG`) entities in the graph — written to `<artifact>.enriched.json`
+and surfaced in the customer report under each entity as **External records**.
+It's opt-in and decoupled from the engine (it makes network calls).
+
+```sh
+PYTHONPATH=.:src python research/enrichment.py <artifact.json> [--top-n 12]
+```
+
+Two free providers:
+
+- **SEC EDGAR** — works out of the box, no key. US public-company identity +
+  recent filings.
+- **OpenRegistry** — 30 national company registries (beneficial owners,
+  officers, shareholders). Free tier, and crucially **no account and no API
+  key**: auth is OAuth 2.1 with Dynamic Client Registration. Authorise **once**:
+
+  ```sh
+  PYTHONPATH=.:src python research/enrichment.py --openregistry-login
+  ```
+
+  This opens OpenRegistry's authorisation page in your browser — you just click
+  **Authorize** (there is *no* username/password; optionally enter an email to
+  raise the free limit from 20→30 rpm). The tokens (incl. a refresh token) are
+  stored at `~/.config/investigator/openregistry_oauth.json` and **auto-refresh**
+  thereafter, so you only do this once. On a headless server, run the login on a
+  machine with a browser and copy that file over (or point `INVESTIGATOR_OAUTH_DIR`
+  at it).
+
+Disable a provider with `--no-edgar` / `--no-openregistry`. Note: enrichment
+sends extracted entity *names* to these external services.
+
+---
+
 ## Repository layout
 
 ```

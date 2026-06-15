@@ -257,6 +257,7 @@ def _build_openregistry_auth(interactive: bool):
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         token_endpoint_auth_method="none",
+        scope=os.environ.get("INVESTIGATOR_OPENREGISTRY_SCOPE", "openregistry:read"),
     )
     if interactive:
         redirect_handler, callback_handler = _interactive_oauth_handlers()
