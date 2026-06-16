@@ -145,6 +145,44 @@ def test_alias_rewrites_incoming_edge_endpoints():
     assert out_edges[1]["dst_identifier"] == "ACME FOUNDATION OF AMERICA"
 
 
+# --- Rule 4: symmetric surface-form match (cross-stage canonical divergence) ---
+# S1 and S2 choose canonical names independently; the same entity can surface as
+# two different canonicals across stages. The incoming node's labels / rep id
+# must be matched against saved identifiers, not just the incoming identifier.
+
+
+def test_cross_stage_incoming_label_matches_saved_identifier():
+    # S1 canonical "INTERNATIONAL CRIMINAL COURT"; S2 picked "ICC" but carries
+    # the S1 canonical as a label -> must merge into the saved node, not dup.
+    saved = [_node("INTERNATIONAL CRIMINAL COURT", uid="s1")]
+    new = _node("ICC", uid="s2", labels=["INTERNATIONAL CRIMINAL COURT"])
+    _e, dedup, _se, snodes = merge_run_into_saved([], [new], [], saved)
+    assert dedup == []                                   # merged, not a new node
+    assert len(snodes) == 1
+    assert snodes[0]["identifier"] == "INTERNATIONAL CRIMINAL COURT"  # saved canonical kept
+    assert "ICC" in snodes[0]["labels"]                  # variant recorded
+
+
+def test_cross_stage_incoming_rep_matches_saved_identifier():
+    # Incoming identifier "KOREA" with representative_identifier "SOUTH KOREA"
+    # merges into a saved "SOUTH KOREA".
+    saved = [_node("SOUTH KOREA", uid="s1")]
+    new = _node("KOREA", rep="SOUTH KOREA", uid="s2")
+    _e, dedup, _se, snodes = merge_run_into_saved([], [new], [], saved)
+    assert dedup == []
+    assert len(snodes) == 1
+    assert snodes[0]["identifier"] == "SOUTH KOREA"
+
+
+def test_cross_stage_unrelated_label_does_not_overmerge():
+    # A label that shares no name with the saved record must NOT pull a merge.
+    saved = [_node("ACME CORP", uid="s1")]
+    new = _node("GLOBEX", uid="s2", labels=["GLOBEX INTERNATIONAL"])
+    _e, dedup, _se, snodes = merge_run_into_saved([], [new], [], saved)
+    assert len(dedup) == 1 and dedup[0]["identifier"] == "GLOBEX"
+    assert len(snodes) == 1
+
+
 def test_enrichment_edge_merged_into_saved_edge_by_pair():
     saved_edges = [_edge("ACME", "BOB", source="old", attributes={"a": 1})]
     new_edges = [_edge("ACME", "BOB", source="new", attributes={"b": 2})]

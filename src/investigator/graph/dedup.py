@@ -859,6 +859,8 @@ def merge_run_into_saved(edges_enrichment_results, merged_entities, saved_edges,
     # degraded over a session's lifetime; these lookups make merge O(dedup+new).
     saved_by_id = {sn["identifier"]: sn for sn in saved_nodes}
     saved_ids = list(saved_by_id)
+    # Upper-cased identifier index for the symmetric surface-form match (Rule 4).
+    saved_by_id_upper = {sid.upper(): sid for sid in saved_ids}
     # Precompute token sets for the structural alias check (Rule 1).
     saved_token_sets = {sid: _id_tokens(sid) for sid in saved_ids}
     # Rule 3 (label match): upper-cased label -> saved identifier. When an
@@ -912,6 +914,24 @@ def merge_run_into_saved(edges_enrichment_results, merged_entities, saved_edges,
                 matched_sid = saved_labels_index.get(new_id.upper().strip())
                 if matched_sid == new_id:
                     matched_sid = None
+            # Rule 4 (symmetric surface-form match): the incoming node's OWN
+            # alternate names -- its representative_identifier and labels -- are
+            # checked against saved identifiers AND saved labels. S1 and S2 pick
+            # canonicals independently, so the same entity can end up as S1
+            # "INTERNATIONAL CRIMINAL COURT" and S2 "ICC" (carrying the other as
+            # a label). Rule 3 only checks the incoming *identifier*, so it
+            # misses this; matching the incoming labels too catches it.
+            if matched_sid is None:
+                for cand in [node.get("representative_identifier"), *(node.get("labels") or [])]:
+                    if not isinstance(cand, str):
+                        continue
+                    cu = cand.upper().strip()
+                    if not cu or not _is_valid_canonical(cand):
+                        continue
+                    sid = saved_by_id_upper.get(cu) or saved_labels_index.get(cu)
+                    if sid and sid != new_id:
+                        matched_sid = sid
+                        break
             if matched_sid is None:
                 matched_sid = _find_alias_in_saved(new_id, saved_ids, saved_token_sets)
             if matched_sid is not None:
