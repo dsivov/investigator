@@ -7,6 +7,8 @@ The functions here move records between three roles:
 """
 
 import json
+import math
+import os
 import re
 from collections import Counter
 from itertools import groupby
@@ -77,21 +79,56 @@ def merge_data_fields(list_of_dicts: list[dict]) -> dict:
     return merged_dict
 
 
-def cluster_identifiers(identifiers: list[str]) -> list:
-    if len(identifiers) < 200:
-        log.debug("Not enough identifiers to cluster; returning single group.")
-        return [identifiers]
-    k = len(identifiers) // 200
-    labels, _inertia = _wl.cluster(identifiers, k=k, max_iterations=100, tolerance=1e-4, n_init=3)
-    groups_dict: dict = {}
+# MostRepresentativeIdentifier degrades on long lists -- it returns wrong
+# canonical names -- so we ALWAYS split the names into small *similar* groups
+# (embedding k-means) and send each group as its own async LLM job. Only a list
+# already at/below the target is sent as a single short group.
+_MRI_GROUP_SIZE = int(os.environ.get("INVESTIGATOR_MRI_GROUP_SIZE", "40"))
+
+
+def _kmeans_groups(names: list[str], k: int) -> list[list[str]]:
+    labels, _inertia = _wl.cluster(names, k=k, max_iterations=100, tolerance=1e-4, n_init=3)
+    buckets: dict = {}
     for i, label in enumerate(labels):
-        groups_dict.setdefault(label, []).append(identifiers[i])
-        log.debug(f"Identifier: {identifiers[i]}, Cluster Label: {label}")
-    groups_lists = []
-    for cluster_label, group in groups_dict.items():
-        log.debug(f"Cluster {cluster_label}: {group}")
-        groups_lists.append(group)
-    return groups_lists
+        buckets.setdefault(label, []).append(names[i])
+    return list(buckets.values())
+
+
+def _split_cluster(group: list[str]) -> list[list[str]]:
+    """Recursively similarity-split a group until each piece is <= the target
+    size. Splitting is always by embedding similarity (never an arbitrary index
+    cut), so variants of one entity stay together. If k-means can't subdivide a
+    group further -- because the names really are near-identical -- it is kept
+    WHOLE rather than sliced apart (those names belong in one canonicalisation
+    list even if the list is a little long)."""
+    if len(group) <= _MRI_GROUP_SIZE:
+        return [group]
+    k = max(2, math.ceil(len(group) / _MRI_GROUP_SIZE))
+    subs = _kmeans_groups(group, k)
+    # No progress: everything landed in one sub-cluster -> cohesive, keep whole.
+    if len(subs) <= 1 or max(len(s) for s in subs) == len(group):
+        return [group]
+    out: list = []
+    for sub in subs:
+        out.extend(_split_cluster(sub))
+    return out
+
+
+def cluster_identifiers(identifiers: list[str]) -> list:
+    n = len(identifiers)
+    if n == 0:
+        return []
+    if n <= _MRI_GROUP_SIZE:
+        log.debug(f"{n} identifiers <= group size {_MRI_GROUP_SIZE}; one group.")
+        return [identifiers]
+    # Group similar names together so variants of one entity land in the same
+    # (short) list for the LLM to canonicalise; recursively similarity-split any
+    # over-target cluster so we never send a long list NOR break apart variants.
+    groups: list = []
+    for cluster in _kmeans_groups(identifiers, max(2, math.ceil(n / _MRI_GROUP_SIZE))):
+        groups.extend(_split_cluster(cluster))
+    log.debug(f"Clustered {n} identifiers into {len(groups)} groups (target {_MRI_GROUP_SIZE}).")
+    return groups
 
 
 # Fields that denote a single fact (prefer the best source's value), vs the

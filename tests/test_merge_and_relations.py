@@ -14,7 +14,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from investigator.graph.dedup import attach_relations_to_nodes, merge_run_into_saved  # noqa: E402
+from investigator.graph.dedup import (  # noqa: E402
+    attach_relations_to_nodes,
+    cluster_identifiers,
+    merge_run_into_saved,
+)
+from investigator.graph.dedup import _MRI_GROUP_SIZE  # noqa: E402
 
 
 def _node(identifier, rep=None, **kw):
@@ -181,6 +186,37 @@ def test_cross_stage_unrelated_label_does_not_overmerge():
     _e, dedup, _se, snodes = merge_run_into_saved([], [new], [], saved)
     assert len(dedup) == 1 and dedup[0]["identifier"] == "GLOBEX"
     assert len(snodes) == 1
+
+
+# --- cluster_identifiers: always split into small similar groups for the LLM --
+# Long name lists make MostRepresentativeIdentifier return wrong canonicals, so
+# every list above the group size is clustered into bounded similar groups.
+
+
+def test_cluster_identifiers_splits_and_preserves():
+    # A large list is split into more than one group, losing/duplicating nothing.
+    names = [f"PERSON {i:03d} SURNAME{i}" for i in range(_MRI_GROUP_SIZE * 3)]
+    groups = cluster_identifiers(names)
+    assert len(groups) > 1                                  # not one long list
+    assert all(g for g in groups)                           # no empty groups
+    flat = [n for g in groups for n in g]
+    assert sorted(flat) == sorted(names)                    # nothing lost/duplicated
+
+
+def test_cluster_identifiers_keeps_variants_together():
+    # The point of the recursive *similarity* split: variants of one entity must
+    # never land in different groups. Tight variant set + many other names.
+    variants = ["ACME CORPORATION", "ACME CORP", "ACME COMPANY"]
+    others = [f"UNREL ENTITY {i:03d}" for i in range(_MRI_GROUP_SIZE * 2)]
+    groups = cluster_identifiers(variants + others)
+    home = next(g for g in groups if "ACME CORP" in g)
+    assert all(v in home for v in variants), "ACME variants must share one group"
+
+
+def test_cluster_identifiers_short_list_single_group():
+    names = ["ACME", "GLOBEX", "INITECH"]
+    assert cluster_identifiers(names) == [names]
+    assert cluster_identifiers([]) == []
 
 
 def test_enrichment_edge_merged_into_saved_edge_by_pair():
