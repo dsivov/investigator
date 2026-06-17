@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lightrag import LightRAG
+from lightrag import LightRAG, QueryParam
 from lightrag.kg.shared_storage import (
     get_namespace_data,
     get_namespace_lock,
@@ -238,6 +238,25 @@ class CumulativeKG:
         """Look up a merged entity by its canonical name (mainly for tests/debug)."""
         return await asyncio.wrap_future(self._submit(self._get_node(name)))
 
+    async def query(self, text: str, *, mode: str = "hybrid", **kwargs):
+        """LLM-synthesized answer over the cumulative KG (LightRAG ``aquery``).
+
+        ``mode`` is one of local / global / hybrid / mix / naive. Note: ``naive``
+        and the chunk side of ``mix`` need text chunks, which the in-code merge
+        does not populate, so they retrieve only what the graph holds.
+        """
+        return await asyncio.wrap_future(self._submit(self._query(text, mode, kwargs)))
+
+    async def retrieve(self, text: str, *, mode: str = "hybrid", **kwargs) -> dict:
+        """Structured retrieval WITHOUT LLM synthesis (LightRAG ``aquery_data``):
+        returns ``{status, data: {entities, relationships, chunks}}``. Keyword
+        extraction still uses the LLM."""
+        return await asyncio.wrap_future(self._submit(self._retrieve(text, mode, kwargs)))
+
+    async def stats(self) -> dict:
+        """Entity/edge counts in the cumulative graph + registry canonical count."""
+        return await asyncio.wrap_future(self._submit(self._stats()))
+
     # --- coroutines that run ON the background loop -----------------------
 
     async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None) -> dict:
@@ -275,6 +294,25 @@ class CumulativeKG:
     async def _get_node(self, name: str) -> dict | None:
         await self._initialize()
         return await self._rag.chunk_entity_relation_graph.get_node(name)
+
+    async def _query(self, text: str, mode: str, kwargs: dict):
+        await self._initialize()
+        return await self._rag.aquery(text, param=QueryParam(mode=mode, **kwargs))
+
+    async def _retrieve(self, text: str, mode: str, kwargs: dict) -> dict:
+        await self._initialize()
+        return await self._rag.aquery_data(text, param=QueryParam(mode=mode, **kwargs))
+
+    async def _stats(self) -> dict:
+        await self._initialize()
+        graph = self._rag.chunk_entity_relation_graph
+        labels = await graph.get_all_labels()
+        n_edges = graph._graph.number_of_edges() if getattr(graph, "_graph", None) else None
+        return {
+            "entities": len(labels),
+            "edges": n_edges,
+            "canonicals": len(self.registry.canonicals),
+        }
 
     async def _persist(self) -> None:
         await self._rag.chunk_entity_relation_graph.index_done_callback()
