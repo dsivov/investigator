@@ -184,11 +184,22 @@ class CumulativeKG:
 
     def _graph_to_chunk_results(self, final_graph: dict, source_id: str, file_path: str, mapping: dict) -> list:
         """One investigation graph -> a single (maybe_nodes, maybe_edges) chunk
-        result, with every entity name rewritten to its global canonical."""
+        result, with every entity name rewritten to its global canonical.
+
+        Events are per-investigation and excluded from the cumulative KG. We must
+        also drop any edge that touches an event: LightRAG's merge auto-creates a
+        node for every edge endpoint, so keeping an entity<->event edge would
+        re-introduce the (headline-shaped) event as a phantom entity.
+        """
         ts = int(time.time())
+        event_ids = {
+            n["identifier"]
+            for n in final_graph["nodes"]
+            if (n.get("node_type") or n.get("type")) == "event"
+        }
         maybe_nodes: dict = {}
         for n in final_graph["nodes"]:
-            if (n.get("node_type") or n.get("type")) == "event":
+            if n["identifier"] in event_ids:
                 continue
             name = mapping.get(n["identifier"], n["identifier"])
             maybe_nodes.setdefault(name, []).append(
@@ -203,10 +214,11 @@ class CumulativeKG:
             )
         maybe_edges: dict = {}
         for e in final_graph["edges"]:
-            if e.get("type") == "evidence":
+            src, dst = e.get("src_identifier"), e.get("dst_identifier")
+            if e.get("type") == "evidence" or src in event_ids or dst in event_ids:
                 continue
-            s = mapping.get(e.get("src_identifier"), e.get("src_identifier"))
-            t = mapping.get(e.get("dst_identifier"), e.get("dst_identifier"))
+            s = mapping.get(src, src)
+            t = mapping.get(dst, dst)
             if not (s and t) or s == t:
                 continue
             rtype, ctx = _edge_relation(e)

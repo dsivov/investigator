@@ -28,6 +28,18 @@ def _registry(tmp: Path) -> CanonicalRegistry:
     return CanonicalRegistry(tmp / "reg.json", review_path=tmp / "review.jsonl")
 
 
+def _reset_shared_storage() -> None:
+    """LightRAG's shared_storage is process-global and its locks bind to the
+    first background loop. Production uses ONE CumulativeKG for the process
+    lifetime, but these tests build several (each with its own bg loop), so reset
+    the globals between them to avoid 'bound to a different event loop'."""
+    try:
+        from lightrag.kg.shared_storage import finalize_share_data
+        finalize_share_data()
+    except Exception:  # noqa: BLE001 -- nothing to reset on first use
+        pass
+
+
 # --- CanonicalRegistry tiers -----------------------------------------------
 
 def test_exact_case_insensitive_merges():
@@ -130,6 +142,7 @@ async def _merge_two() -> dict:
 
 
 def test_cumulative_merge_unions_source_ids():
+    _reset_shared_storage()
     out = asyncio.run(_merge_two())
     # Shared entities carry BOTH investigations' source ids (merge, not clobber).
     assert "inv::a" in out["smith_src"] and "inv::b" in out["smith_src"], out["smith_src"]
@@ -140,6 +153,49 @@ def test_cumulative_merge_unions_source_ids():
     assert out["tehran"] and out["washington"]
     # B added one new canonical (WASHINGTON); JOHN SMITH=exact, ACME CORP=normalized.
     assert out["res_b"]["registry"]["new"] >= 1
+
+
+async def _merge_with_event() -> dict:
+    from investigator.analytics.cumulative_kg import CumulativeKG
+
+    work = Path(tempfile.mkdtemp()) / "kg"
+    kg = CumulativeKG(work)
+    headline = "ALICE INDICTED ON FRAUD CHARGES IN LANDMARK CASE"
+    graph = {
+        "nodes": [
+            {"identifier": "ALICE", "type": "entity", "data": {"type": "PERSON"}},
+            {"identifier": "GLOBEX", "type": "entity", "data": {"type": "ORG"}},
+            {"identifier": headline, "type": "event", "data": {"type": "EVENT"}},
+        ],
+        "edges": [
+            # entity<->entity: kept
+            {"src_identifier": "ALICE", "dst_identifier": "GLOBEX", "type": "relationship",
+             "weight": 1.0, "relations": {"type": "works_at", "context": ""}},
+            # entity<->event and event<->entity: must be dropped (would resurrect the event)
+            {"src_identifier": "ALICE", "dst_identifier": headline, "type": "relationship",
+             "weight": 1.0, "relations": {"type": "involved_in", "context": ""}},
+            {"src_identifier": headline, "dst_identifier": "GLOBEX", "type": "relationship",
+             "weight": 1.0, "relations": {"type": "involves", "context": ""}},
+        ],
+    }
+    res = await kg.merge_graph(graph, source_id="inv::e")
+    return {
+        "res": res,
+        "alice": await kg.get_node("ALICE") is not None,
+        "globex": await kg.get_node("GLOBEX") is not None,
+        "event_missing": await kg.get_node(headline) is None,
+    }
+
+
+def test_event_nodes_and_their_edges_excluded():
+    _reset_shared_storage()
+    out = asyncio.run(_merge_with_event())
+    # Entities survive; the headline-shaped event never becomes a KG node.
+    assert out["alice"] and out["globex"]
+    assert out["event_missing"]
+    # Only the single entity<->entity edge is merged (both event edges dropped).
+    assert out["res"]["nodes_merged"] == 2, out["res"]
+    assert out["res"]["edges_merged"] == 1, out["res"]
 
 
 def _run_standalone() -> int:
