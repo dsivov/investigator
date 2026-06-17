@@ -1,7 +1,10 @@
 """Command-line entry point: ``python -m investigator``.
 
-Loads secrets, builds the Flask app, optionally spawns the analytics
-processes (LightRAG server + reranker), and runs the development server.
+Loads secrets, builds the Flask app, and runs the development server. When
+``--analytic_engine_enabled`` is set, the app builds an in-process
+:class:`~investigator.analytics.CumulativeKG` that accumulates every finished
+investigation's graph into the persistent LightRAG store under
+``global_args.working_dir`` -- no separate server process.
 
 Production deployment: front this with gunicorn/uvicorn instead of
 ``app.run(...)``. Phase 3 candidate.
@@ -9,10 +12,7 @@ Production deployment: front this with gunicorn/uvicorn instead of
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import multiprocessing
-import threading
 
 from investigator.config import SecretLoader, global_args
 
@@ -26,36 +26,10 @@ _log = logging.getLogger("investigator")
 
 
 def main() -> None:
-    app, analytics_worker = create_app()
-
+    app = create_app()
     if global_args.analytic_engine_enabled:
-        from investigator.analytics.reranker import main as rag_rerank_server
-        from investigator.analytics.server import main as lightrag_server
-
-        def _start_lightrag_server() -> None:
-            lightrag_server()
-
-        def _start_rerank_server(host: str, port: int) -> None:
-            asyncio.run(rag_rerank_server(host=host, port=port))
-
-        analytics_worker.start()
-        _log.info("Analytic engine enabled")
-        reranker_thread = threading.Thread(
-            target=_start_rerank_server,
-            args=(global_args.reranker_host, global_args.reranker_port),
-            daemon=True,
-        )
-        reranker_thread.start()
-        lightrag_process = multiprocessing.Process(target=_start_lightrag_server)
-        lightrag_process.start()
-    else:
-        lightrag_process = None
-        reranker_thread = None
-
+        _log.info("Analytic engine enabled: cumulative KG at %s", global_args.working_dir)
     app.run(host=global_args.investigator_host, port=global_args.investigator_port)
-
-    if lightrag_process is not None:
-        lightrag_process.join()
 
 
 if __name__ == "__main__":

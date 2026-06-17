@@ -98,8 +98,7 @@ async def _merge_two() -> dict:
     from investigator.analytics.cumulative_kg import CumulativeKG
 
     work = Path(tempfile.mkdtemp()) / "kg"
-    kg = CumulativeKG(work)
-    await kg.initialize()
+    kg = CumulativeKG(work)  # init is lazy, on the background loop
 
     # Investigation A
     ga = _graph(

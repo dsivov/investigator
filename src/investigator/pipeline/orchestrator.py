@@ -601,13 +601,13 @@ class InvestigationPipeline:
     def __init__(
         self,
         state_repo,
-        analytics_worker,
+        cumulative_kg=None,
         *,
         analytics_enabled: bool = True,
         debug_mode: bool = False,
     ) -> None:
         self.state_repo = state_repo
-        self.analytics_worker = analytics_worker
+        self.cumulative_kg = cumulative_kg
         self.analytics_enabled = analytics_enabled
         self.debug_mode = debug_mode
 
@@ -805,7 +805,6 @@ class InvestigationPipeline:
                 if run not in existing:
                     n["runs"] = existing + [run]
 
-        self._enqueue_to_analytics(merged_entities)
         n_dedup = len(merged_entities)
 
         # --- Step 4: Graph building ----------------------------------------
@@ -1067,8 +1066,9 @@ class InvestigationPipeline:
             except Exception as e:  # noqa: BLE001 -- BP must never break a run
                 log.warning(f"Phase-2 BP failed: {type(e).__name__}: {e}")
 
-        self._enqueue_to_analytics(merged_entities)
-        self._enqueue_edges_to_analytics(edges_enrichment_results)
+        await self._merge_into_cumulative_kg(
+            merged_entities, edges_enrichment_results, f"inv::{run or investigation_id}"
+        )
         self._render_debug_graph(investigation_id, merged_entities, edges_enrichment_results, investigation_query)
 
         evidence_edges = sum(1 for e in edges_enrichment_results if e.get("type") == "evidence")
@@ -1343,30 +1343,23 @@ class InvestigationPipeline:
             "edges": [e.to_dict() for e in state.edges],
         }
 
-    def _enqueue_to_analytics(self, records: list[dict]) -> None:
-        if not self.analytics_enabled:
-            return
-        for record in records:
-            self.analytics_worker.enqueue(
-                {
-                    "text": json.dumps(record),
-                    "chunk": record.get("chunk_uuid", ""),
-                    "identifier": record.get("identifier", ""),
-                    "uuid": record.get("unique_identifier", ""),
-                }
-            )
+    async def _merge_into_cumulative_kg(
+        self, entities: list[dict], edges: list[dict], source_id: str
+    ) -> None:
+        """Accumulate this run's graph into the persistent cross-investigation KG.
 
-    def _enqueue_edges_to_analytics(self, edges: list[dict]) -> None:
-        if not self.analytics_enabled:
+        The CanonicalRegistry pre-pass + LightRAG merge-by-name happen in-process
+        (no server). Guarded so a KG failure never breaks the investigation.
+        """
+        if not self.analytics_enabled or self.cumulative_kg is None:
             return
-        for record in edges:
-            self.analytics_worker.enqueue(
-                {
-                    "text": json.dumps(record),
-                    "identifier": record.get("src_identifier", "") + "|" + record.get("dst_identifier", ""),
-                    "uuid": record.get("unique_identifier", ""),
-                }
+        try:
+            summary = await self.cumulative_kg.merge_graph(
+                {"nodes": entities, "edges": edges}, source_id=source_id
             )
+            log.info(f"Cumulative KG updated from {source_id}: {summary}")
+        except Exception as e:  # noqa: BLE001 -- KG accumulation must never break a run
+            log.warning(f"Cumulative KG merge failed for {source_id}: {type(e).__name__}: {e}")
 
     def _render_phase2_visualizations(self, investigation_id, tmfg_result, bp_result,
                                        entities, edges, query) -> None:

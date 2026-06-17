@@ -1,7 +1,7 @@
 """Flask application factory.
 
-Wires the state objects (``state_repo``, ``analytics_worker``, ``pipeline``)
-and the HTTP blueprint into a single ``Flask`` instance.
+Wires the state objects (``state_repo``, ``cumulative_kg``, ``pipeline``) and
+the HTTP blueprint into a single ``Flask`` instance.
 
 SecretLoader must have run before calling ``create_app`` because the
 orchestrator imports DSPy at module-load and DSPy reads
@@ -12,36 +12,33 @@ from __future__ import annotations
 
 from flask import Flask
 
-from investigator.analytics import AnalyticsWorker, RAGClient
+from investigator.analytics import CumulativeKG
 from investigator.api import create_api_blueprint, register_error_handlers
 from investigator.config import global_args
 from investigator.pipeline.orchestrator import InvestigationPipeline
 from investigator.state import InvestigationStateRepo
 
 
-def create_app(
-    *,
-    rag_base_url: str = "http://localhost:9626",
-    debug_mode: bool = False,
-) -> tuple[Flask, AnalyticsWorker]:
-    """Construct the Flask app + return the analytics worker.
+def create_app(*, debug_mode: bool = False) -> Flask:
+    """Construct the Flask app.
 
-    Returns the worker as well so the entry-point can call ``start()`` on
-    it when ``--analytic_engine_enabled`` is set, without re-importing
-    module-level globals.
+    When ``--analytic_engine_enabled`` is set, a :class:`CumulativeKG` is built
+    over ``global_args.working_dir`` and accumulates every finished
+    investigation's graph (in-process; no LightRAG server). Otherwise the
+    pipeline runs without KG accumulation.
     """
-    state_client = RAGClient(base_url=rag_base_url)
-    analytics_worker = AnalyticsWorker(state_client)
+    analytics_enabled = global_args.analytic_engine_enabled
+    cumulative_kg = CumulativeKG(working_dir=global_args.working_dir) if analytics_enabled else None
     state_repo = InvestigationStateRepo()
     pipeline = InvestigationPipeline(
         state_repo=state_repo,
-        analytics_worker=analytics_worker,
-        analytics_enabled=global_args.analytic_engine_enabled,
+        cumulative_kg=cumulative_kg,
+        analytics_enabled=analytics_enabled,
         debug_mode=debug_mode,
     )
 
     app = Flask(__name__)
-    app.config["ANALYTIC_ENGINE_ENABLED"] = global_args.analytic_engine_enabled
+    app.config["ANALYTIC_ENGINE_ENABLED"] = analytics_enabled
     app.register_blueprint(create_api_blueprint(pipeline))
     register_error_handlers(app)
-    return app, analytics_worker
+    return app

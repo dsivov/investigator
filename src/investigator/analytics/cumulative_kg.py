@@ -23,8 +23,11 @@ real ``llm_model_func`` for description summarization.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 import time
+from concurrent.futures import Future
 from dataclasses import asdict
 from pathlib import Path
 
@@ -95,14 +98,22 @@ def _edge_relation(edge: dict) -> tuple[str, str]:
 class CumulativeKG:
     """In-process LightRAG knowledge graph that accumulates investigation graphs.
 
-    Lifecycle::
+    All LightRAG work runs on ONE dedicated asyncio loop in a daemon thread.
+    This is required under Flask, which runs each async request handler in its
+    own event loop: LightRAG's ``shared_storage`` caches ``asyncio.Lock`` objects
+    in process globals, and those locks bind to the loop that created them, so a
+    long-lived instance touched from many request loops would raise "got Future
+    attached to a different loop". Pinning everything to one loop also serializes
+    writes to the file store (single writer).
 
-        kg = CumulativeKG(working_dir, registry_path)
-        await kg.initialize()
-        await kg.merge_graph(final_graph_a, source_id="inv::a")
-        await kg.merge_graph(final_graph_b, source_id="inv::b")
+    Usage from an async request handler::
 
-    Call :meth:`merge_graph` once per finished investigation.
+        kg = CumulativeKG(working_dir)                  # construct once (app start)
+        await kg.merge_graph(final_graph, source_id="inv::a")   # per investigation
+
+    :meth:`merge_graph` / :meth:`get_node` dispatch onto the background loop and
+    return an awaitable bound to the caller's loop, so they never block it.
+    Initialization is lazy and happens once on the background loop.
     """
 
     def __init__(
@@ -123,8 +134,38 @@ class CumulativeKG:
         self._rag: LightRAG | None = None
         self._pipeline_status = None
         self._pipeline_status_lock = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._initialized = False
+        self._start_lock = threading.Lock()
 
-    async def initialize(self) -> None:
+    # --- background loop plumbing -----------------------------------------
+
+    def _ensure_loop(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        with self._start_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._loop = asyncio.new_event_loop()
+            self._thread = threading.Thread(
+                target=self._run_loop, name="cumulative-kg", daemon=True
+            )
+            self._thread.start()
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def _submit(self, coro) -> Future:
+        """Schedule a coroutine on the background loop from any thread/loop."""
+        self._ensure_loop()
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    async def _initialize(self) -> None:
+        """Build + open the LightRAG store. Runs once, on the background loop."""
+        if self._initialized:
+            return
         self.working_dir.mkdir(parents=True, exist_ok=True)
         self._rag = LightRAG(
             working_dir=str(self.working_dir),
@@ -139,6 +180,7 @@ class CumulativeKG:
         self._pipeline_status_lock = get_namespace_lock(
             "pipeline_status", workspace=self._rag.workspace
         )
+        self._initialized = True
 
     def _graph_to_chunk_results(self, final_graph: dict, source_id: str, file_path: str, mapping: dict) -> list:
         """One investigation graph -> a single (maybe_nodes, maybe_edges) chunk
@@ -185,10 +227,21 @@ class CumulativeKG:
     async def merge_graph(self, final_graph: dict, source_id: str, file_path: str | None = None) -> dict:
         """Canonicalize then merge one investigation graph into the cumulative KG.
 
+        Dispatches onto the background loop; awaitable on the caller's loop.
         Returns a small summary dict (node/edge counts merged + registry stats).
         """
-        if self._rag is None:
-            raise RuntimeError("CumulativeKG.initialize() must be called before merge_graph()")
+        return await asyncio.wrap_future(
+            self._submit(self._merge_graph(final_graph, source_id, file_path))
+        )
+
+    async def get_node(self, name: str) -> dict | None:
+        """Look up a merged entity by its canonical name (mainly for tests/debug)."""
+        return await asyncio.wrap_future(self._submit(self._get_node(name)))
+
+    # --- coroutines that run ON the background loop -----------------------
+
+    async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None) -> dict:
+        await self._initialize()
         file_path = file_path or source_id
         mapping = resolve_graph_entities(final_graph, self.registry, source_id)
         chunk_results = self._graph_to_chunk_results(final_graph, source_id, file_path, mapping)
@@ -219,8 +272,8 @@ class CumulativeKG:
             "registry": dict(self.registry.stats),
         }
 
-    async def get_node(self, name: str) -> dict | None:
-        """Look up a merged entity by its canonical name (mainly for tests/debug)."""
+    async def _get_node(self, name: str) -> dict | None:
+        await self._initialize()
         return await self._rag.chunk_entity_relation_graph.get_node(name)
 
     async def _persist(self) -> None:
