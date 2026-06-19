@@ -181,20 +181,25 @@ def _meta_from_artifact(inv_id: str, path: Path, *, deep: bool = False) -> dict:
             "summary": _summary_shallow(path),
         }
     d = json.loads(path.read_text())
-    final = d["final_merged_graph"]
+    # final_merged_graph is {} when an investigation found no articles; treat a
+    # missing/empty graph as zero nodes/edges rather than crashing (-> HTTP 500).
+    final = d.get("final_merged_graph") or {}
+    nodes = final.get("nodes") or []
+    edges = final.get("edges") or []
     bridges = final.get("bridging_entities", []) or []
     leads = final.get("cross_event_leads", []) or []
     themes = final.get("themes", []) or []
     cross_themes = [t for t in themes if t.get("is_cross_investigation")]
-    fetched = sum(len(b) for s in d["per_event_states"] for b in s.get("article_batches", []))
-    body_ok = sum(1 for s in d["per_event_states"] for b in s.get("article_batches", [])
+    per_event_states = d.get("per_event_states") or []
+    fetched = sum(len(b) for s in per_event_states for b in s.get("article_batches", []))
+    body_ok = sum(1 for s in per_event_states for b in s.get("article_batches", [])
                   for a in b if a.get("text"))
-    headline_only = sum(1 for s in d["per_event_states"] for b in s.get("article_batches", [])
+    headline_only = sum(1 for s in per_event_states for b in s.get("article_batches", [])
                         for a in b if not a.get("text") and (a.get("title") or "").strip())
     n_runs = len(d.get("events", []))
     all_threads = [b for b in bridges if len(b.get("runs") or []) >= n_runs]
     nodes_per_run: dict[str, int] = defaultdict(int)
-    for n in final["nodes"]:
+    for n in nodes:
         for r in (n.get("runs") or []):
             nodes_per_run[r] += 1
     sparse = [r for r, c in nodes_per_run.items() if c <= 5]
@@ -227,8 +232,8 @@ def _meta_from_artifact(inv_id: str, path: Path, *, deep: bool = False) -> dict:
             "fetched": fetched,
             "extracted_full_body": body_ok,
             "extracted_headline_only": headline_only,
-            "nodes": len(final["nodes"]),
-            "edges": len(final["edges"]),
+            "nodes": len(nodes),
+            "edges": len(edges),
             "bridges": len(bridges),
             "bridges_all_threads": len(all_threads),
             "themes": len(themes),
