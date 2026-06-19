@@ -167,8 +167,10 @@ def test_related_node_canonicalized_via_representative():
 
 def test_golden_consolidator_preserves_survival_and_probs():
     """Run the consolidator over the captured input with mocked evidence lists;
-    assert the survival set + per-node probs are byte-for-byte identical to the
-    captured output (the only intended change is reasoning text annotation)."""
+    assert the survival set is unchanged and per-node probs only move AWAY from
+    0.5 (multi-source corroboration sharpens confidence; see operations.CORRO_GAIN).
+    The golden was captured before corroboration, so probs are no longer byte
+    identical -- the invariant is monotone sharpening on the same side of 0.5."""
     if not GOLDEN.exists():
         return  # golden fixture not shipped in the public repo
     g = json.load(gzip.open(GOLDEN))
@@ -191,8 +193,18 @@ def test_golden_consolidator_preserves_survival_and_probs():
     sm, sg = survival(out), survival(gold)
     assert sm == sg, f"survival drift: only-mine={sorted(sm - sg)[:5]} only-gold={sorted(sg - sm)[:5]}"
     pm, pg = probs(out), probs(gold)
-    diffs = {k for k in pm if abs(pm[k] - pg.get(k, -1)) > 1e-6}
-    assert not diffs, f"prob drift on {len(diffs)} nodes: {list(diffs)[:5]}"
+    # Corroboration only sharpens: same side of 0.5, magnitude never decreases.
+    regressions = []
+    for k, gold_p in pg.items():
+        new_p = pm.get(k, gold_p)
+        if (gold_p - 0.5) * (new_p - 0.5) < -1e-9:
+            regressions.append((k, gold_p, new_p, "side-flip"))
+        elif abs(new_p - 0.5) + 1e-6 < abs(gold_p - 0.5):
+            regressions.append((k, gold_p, new_p, "toward-neutral"))
+    assert not regressions, f"prob regressions on {len(regressions)} nodes: {regressions[:5]}"
+    # The feature must actually be live on the golden (some multi-source shift).
+    boosted = sum(1 for k in pg if abs(pm.get(k, pg[k]) - pg[k]) > 1e-6)
+    assert boosted > 0, "expected multi-source corroboration to shift some golden probs"
     # the new root-provenance annotation must actually fire on the golden
     assert routed > 0, "Loop-2 folded in: at least one supporting evidence should carry the path-to-root annotation"
     ann = sum(

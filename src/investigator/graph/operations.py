@@ -7,6 +7,8 @@ that drops low-relevance / disconnected nodes and orphan edges.
 
 from __future__ import annotations
 
+import math
+import os
 import uuid
 
 import networkx as nx
@@ -14,6 +16,14 @@ import networkx as nx
 from investigator.logging import get_logger
 
 log = get_logger()
+
+# Multi-source corroboration (standard fact-checking): independent sources that
+# attest the SAME conclusion sharpen confidence toward certainty. The signal
+# magnitude is multiplied by ``1 + CORRO_GAIN * log2(min(n_distinct_sources,
+# CORRO_CAP))``, counting distinct sources only on the winning (net) side. One
+# source -> factor 1.0 (no change). Tunable via env.
+CORRO_GAIN = float(os.getenv("INVESTIGATOR_CORRO_GAIN", "0.35"))
+CORRO_CAP = int(os.getenv("INVESTIGATOR_CORRO_CAP", "8"))
 
 
 # --- Filtering & scoring ---------------------------------------------------
@@ -48,9 +58,17 @@ def evidence_probability(evidences: list[dict]) -> float:
     returns ``≥ 0.5``; once extraction emits contradicting evidence the sign
     pulls it below 0.5. Returns ``0.0`` for no / zero-confidence evidence
     (i.e. "no credible evidence").
+
+    Multi-source corroboration: after the signed average, the magnitude is
+    sharpened toward certainty when independent sources attest the same
+    conclusion (see ``CORRO_GAIN``/``CORRO_CAP``). Distinct sources are counted
+    only on the winning side, and only when they carry a usable magnitude, so a
+    single source (or unattributed evidence) leaves the result unchanged.
     """
     weighted_sum = 0.0
     total_confidence = 0.0
+    pos_sources: set[str] = set()
+    neg_sources: set[str] = set()
     for e in evidences:
         confidence = e.get("confidence") or 0.0
         if confidence <= 0:
@@ -58,13 +76,36 @@ def evidence_probability(evidences: list[dict]) -> float:
         magnitude = e.get("strength")
         if not isinstance(magnitude, (int, float)):
             magnitude = 0.0   # no usable magnitude -> contribute no signal
-        sign = 1.0 if e.get("hypothesis", True) else -1.0
+        supports = bool(e.get("hypothesis", True))
+        sign = 1.0 if supports else -1.0
         weighted_sum += sign * magnitude * confidence
         total_confidence += confidence
+        # Track distinct corroborating sources per side. Same source counted
+        # once (independence); zero-magnitude items don't corroborate anything.
+        src = _evidence_source_key(e)
+        if src and magnitude > 0:
+            (pos_sources if supports else neg_sources).add(src)
     if total_confidence == 0:
         return 0.0
     signal = weighted_sum / total_confidence
+    winning = pos_sources if signal >= 0 else neg_sources
+    n_src = min(len(winning), CORRO_CAP)
+    if n_src > 1:
+        factor = 1.0 + CORRO_GAIN * math.log2(n_src)
+        signal = max(-1.0, min(1.0, signal * factor))
     return (signal + 1.0) / 2.0
+
+
+def _evidence_source_key(e: dict) -> str | None:
+    """Stable distinct-source key for corroboration counting: the source/doc
+    identifier, else the first related link. None when no provenance is known
+    (such evidence cannot count as independent corroboration)."""
+    md = e.get("metadata") or {}
+    key = (e.get("doc_id") or md.get("source") or "").strip()
+    if not key:
+        links = md.get("related_links") or []
+        key = (links[0].strip() if links and isinstance(links[0], str) else "")
+    return key.lower() or None
 
 
 # --- Graph construction ----------------------------------------------------

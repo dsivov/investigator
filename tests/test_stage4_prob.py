@@ -68,6 +68,51 @@ def test_range_always_0_1():
         assert 0.0 <= p <= 1.0
 
 
+# --- multi-source corroboration ---------------------------------------------
+
+def _evs(strength, confidence, hypothesis, source):
+    return {"strength": strength, "confidence": confidence, "hypothesis": hypothesis,
+            "doc_id": source}
+
+
+def test_corroboration_unattributed_evidence_unchanged():
+    # No source provenance -> cannot count as independent corroboration; the
+    # signed-average result is unchanged regardless of how many items.
+    assert evidence_probability([_ev(0.5)]) == 0.75
+    assert evidence_probability([_ev(0.5), _ev(0.5), _ev(0.5)]) == 0.75
+
+
+def test_corroboration_single_source_no_boost():
+    # One distinct source (even repeated) -> factor 1.0, no boost.
+    one = evidence_probability([_evs(0.4, 1.0, True, "urlA")])
+    repeated = evidence_probability([_evs(0.4, 1.0, True, "urlA"),
+                                     _evs(0.4, 1.0, True, "urlA")])
+    assert abs(one - 0.70) < 1e-9
+    assert abs(repeated - 0.70) < 1e-9   # same source doesn't corroborate itself
+
+
+def test_corroboration_distinct_sources_increase_prob():
+    base = evidence_probability([_evs(0.4, 1.0, True, "urlA")])
+    two = evidence_probability([_evs(0.4, 1.0, True, "urlA"),
+                                _evs(0.4, 1.0, True, "urlB")])
+    four = evidence_probability([_evs(0.4, 1.0, True, s) for s in ("a", "b", "c", "d")])
+    # signal 0.40 -> moderate gain 0.35: 2 src factor 1.35 -> 0.77; 4 src 1.70 -> 0.84
+    assert two > base
+    assert four > two
+    assert abs(two - 0.77) < 0.02
+    assert abs(four - 0.84) < 0.02
+
+
+def test_corroboration_counts_only_winning_side():
+    # 3 supporting sources vs 1 contradicting: net supports; the contradiction
+    # still lowers the base signal, but only the 3 supporters drive the boost.
+    p = evidence_probability([
+        _evs(0.6, 1.0, True, "a"), _evs(0.6, 1.0, True, "b"), _evs(0.6, 1.0, True, "c"),
+        _evs(0.6, 1.0, False, "d"),
+    ])
+    assert p > 0.5   # net support, sharpened by 3-source corroboration
+
+
 def _run_golden_validation() -> None:
     if not GOLDEN.exists():
         return  # golden fixture not shipped in the public repo
