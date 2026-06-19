@@ -689,6 +689,12 @@ class InvestigationPipeline:
         else:
             log.info(f"Resuming investigation session: {investigation_id}")
 
+        # --- Prior cross-investigation context (read-only pre-seed) ---------
+        # What the cumulative KG already knows about this subject, retrieved
+        # BEFORE this run is merged in, so the response/report can reference
+        # prior findings. Guarded: never blocks or breaks the run.
+        prior_context = await self._kg_prior_context(investigation_subject or investigation_query)
+
         # --- Preprocess input ----------------------------------------------
         is_json_input = is_json(text)
         if is_json_input:
@@ -1131,6 +1137,7 @@ class InvestigationPipeline:
             "session_id": str(investigation_id),
             "nodes": response_nodes,
             "edges": response_edges,
+            **({"prior_context": prior_context} if prior_context else {}),
             **network_analysis,
         }
 
@@ -1342,6 +1349,40 @@ class InvestigationPipeline:
             "nodes": [n.to_dict() for n in state.nodes],
             "edges": [e.to_dict() for e in state.edges],
         }
+
+    async def _kg_prior_context(self, subject: str | None, top_k: int = 30) -> dict | None:
+        """Retrieve what the cumulative KG already knows about ``subject``.
+
+        Uses the structured (no-LLM-synthesis) retrieval endpoint in ``hybrid``
+        mode and returns trimmed entities + relationships. Returns None when the
+        KG is disabled/empty or on any error -- this is a best-effort pre-seed,
+        never a hard dependency.
+        """
+        if not self.analytics_enabled or self.cumulative_kg is None or not subject:
+            return None
+        try:
+            data = await self.cumulative_kg.retrieve(subject, mode="hybrid")
+            d = (data or {}).get("data") or {}
+            entities = [
+                {"name": e.get("entity_name"), "type": e.get("entity_type"),
+                 "description": e.get("description")}
+                for e in (d.get("entities") or [])[:top_k]
+            ]
+            relationships = [
+                {"src": r.get("src_id"), "dst": r.get("tgt_id"),
+                 "description": r.get("description"), "weight": r.get("weight")}
+                for r in (d.get("relationships") or [])[:top_k]
+            ]
+            if not entities and not relationships:
+                return None
+            log.info(
+                f"Cumulative KG prior context for {subject!r}: "
+                f"{len(entities)} entities, {len(relationships)} relationships"
+            )
+            return {"subject": subject, "entities": entities, "relationships": relationships}
+        except Exception as e:  # noqa: BLE001 -- prior context is best-effort
+            log.warning(f"Cumulative KG prior-context retrieval failed for {subject!r}: {type(e).__name__}: {e}")
+            return None
 
     async def _merge_into_cumulative_kg(
         self, entities: list[dict], edges: list[dict], source_id: str

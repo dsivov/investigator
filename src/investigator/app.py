@@ -13,6 +13,7 @@ from __future__ import annotations
 from flask import Flask
 
 from investigator.analytics import CumulativeKG
+from investigator.analytics.llm import make_openai_llm
 from investigator.api import create_api_blueprint, register_error_handlers
 from investigator.config import global_args
 from investigator.pipeline.orchestrator import InvestigationPipeline
@@ -28,7 +29,11 @@ def create_app(*, debug_mode: bool = False) -> Flask:
     pipeline runs without KG accumulation.
     """
     analytics_enabled = global_args.analytic_engine_enabled
-    cumulative_kg = CumulativeKG(working_dir=global_args.working_dir) if analytics_enabled else None
+    cumulative_kg = (
+        CumulativeKG(working_dir=global_args.working_dir, llm_model_func=make_openai_llm())
+        if analytics_enabled
+        else None
+    )
     state_repo = InvestigationStateRepo()
     pipeline = InvestigationPipeline(
         state_repo=state_repo,
