@@ -58,6 +58,8 @@ export interface GraphNode {
   evidenceCount: number;
   corroboration: "weak" | "moderate" | "strong";
   corroborationSources: number;
+  corroboratedClaim: string;
+  corroboratedClaims: number;
   posterior: number;
   score: number;
   data: Record<string, unknown>;

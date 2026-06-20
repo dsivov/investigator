@@ -68,13 +68,21 @@
     }
   }
 
-  // Multi-source corroboration badge (standard fact-checking): 1 source = weak,
-  // 2 = moderate, 3+ = strong. Backend-computed; falls back to "weak" when absent.
+  // Claim-level corroboration badge (fact-checking): how many INDEPENDENT
+  // sources confirm the best-corroborated single claim. 1 = weak, 2 = moderate,
+  // 3+ = strong. Syndicated/near-identical copies count once.
   const CORRO_STYLE: Record<string, string> = {
     strong: "bg-emerald-900/40 text-emerald-300 border-emerald-700/50",
     moderate: "bg-amber-900/40 text-amber-300 border-amber-700/50",
     weak: "bg-slate-800 text-slate-400 border-slate-700",
   };
+  function corroTitle(r: any): string {
+    const n = r.corroborationSources ?? 0;
+    if (!n) return "No corroborated claim";
+    const head = `${n} independent source${n === 1 ? "" : "s"} confirm the best claim`
+      + (r.corroboratedClaims ? ` · ${r.corroboratedClaims} corroborated claim(s)` : "");
+    return r.corroboratedClaim ? `${head}:\n${r.corroboratedClaim}` : head;
+  }
 </script>
 
 <div class="flex flex-wrap items-center gap-3 border-b border-slate-800 bg-slate-900/60 px-5 py-2 text-xs flex-shrink-0">
@@ -167,7 +175,7 @@
             <td class="td">
               <span
                 class="inline-block rounded border px-1.5 py-0.5 text-xs capitalize {CORRO_STYLE[r.corroboration] ?? CORRO_STYLE.weak}"
-                title="{r.corroborationSources ?? 0} distinct source(s) corroborate this actor"
+                title={corroTitle(r)}
               >{r.corroboration ?? "weak"}{#if r.corroborationSources}<span class="mono ml-1 opacity-70">{r.corroborationSources}</span>{/if}</span>
             </td>
             <td class="td">{#if r.isBridge}<span class="text-emerald-400">●</span>{/if}</td>

@@ -18,26 +18,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-
-def _corroboration(n: dict) -> tuple[str, int]:
-    """Fact-checking strength for an entity: (tier, distinct_source_count).
-
-    Prefers the backend-computed fields (consolidator: winning-side distinct
-    sources). Falls back to counting distinct evidence sources for artifacts
-    produced before corroboration was added. 1->weak, 2->moderate, 3+->strong.
-    """
-    tier = n.get("corroboration")
-    n_src = n.get("corroboration_sources")
-    if isinstance(n_src, int) and isinstance(tier, str):
-        return tier, n_src
-    srcs = set()
-    for ev in (n.get("evidence") or []):
-        key = (ev.get("doc_id") or (ev.get("metadata") or {}).get("source") or "").strip().lower()
-        if key:
-            srcs.add(key)
-    n_src = len(srcs)
-    tier = "strong" if n_src >= 3 else "moderate" if n_src == 2 else "weak"
-    return tier, n_src
+from investigator.graph.corroboration import claim_corroboration
 
 
 def _payload(d: dict) -> dict:
@@ -82,7 +63,7 @@ def _payload(d: dict) -> dict:
             lab = str(lab).strip()
             if lab and lab.upper() != ident.upper() and lab not in clean_labels:
                 clean_labels.append(lab)
-        _corr_tier, _corr_n = _corroboration(n)
+        _cc = claim_corroboration(n.get("evidence") or [])
         out_nodes.append({
             "id": ident,
             "label": ident if len(ident) <= 38 else ident[:35] + "…",
@@ -91,8 +72,10 @@ def _payload(d: dict) -> dict:
             "isBridge": ident in bridge_set,
             "labels": clean_labels[:6],
             "evidenceCount": int(n.get("evidence_count") or 0),
-            "corroboration": _corr_tier,
-            "corroborationSources": _corr_n,
+            "corroboration": _cc["tier"],
+            "corroborationSources": _cc["sources"],
+            "corroboratedClaim": _cc["claim"],
+            "corroboratedClaims": _cc["corroborated_claims"],
             "posterior": float(n.get("posterior_prob") or 0.0),
             "score": float(n.get("score") or 0.0),
             "data": _node_data_subset(n),

@@ -48,6 +48,23 @@ import build_customer_report as bcr       # noqa: E402
 import domain_presets as dp               # noqa: E402
 
 
+# bg._payload now runs WordLlama claim-corroboration clustering, and the
+# graph/entities/events/relationships/sources endpoints each rebuild it for the
+# same artifact -- so memoise by (path, mtime). Small bounded cache.
+_PAYLOAD_CACHE: dict[tuple[str, int], dict] = {}
+
+
+def _graph_payload(path: Path) -> dict:
+    key = (str(path), path.stat().st_mtime_ns)
+    hit = _PAYLOAD_CACHE.get(key)
+    if hit is None:
+        if len(_PAYLOAD_CACHE) > 16:
+            _PAYLOAD_CACHE.clear()
+        hit = bg._payload(json.loads(path.read_text()))
+        _PAYLOAD_CACHE[key] = hit
+    return hit
+
+
 # ---------------------------------------------------------------------------
 # Lazy dspy LM for the query-refinement endpoint. Kept separate from the
 # heavy pipeline orchestrator (which we do NOT import here) so the UI server
@@ -788,8 +805,7 @@ def get_graph(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    d = json.loads(path.read_text())
-    return jsonify(bg._payload(d))
+    return jsonify(_graph_payload(path))
 
 
 @app.route("/api/investigations/<inv_id>/tmfg", methods=["GET"])
@@ -816,8 +832,7 @@ def get_entities(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    d = json.loads(path.read_text())
-    payload = bg._payload(d)
+    payload = _graph_payload(path)
     rows = [n for n in payload["nodes"] if n["type"] == "entity"]
     return _paginate(rows)
 
@@ -827,8 +842,7 @@ def get_events(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    d = json.loads(path.read_text())
-    payload = bg._payload(d)
+    payload = _graph_payload(path)
     rows = [n for n in payload["nodes"] if n["type"] == "event"]
     return _paginate(rows)
 
@@ -838,8 +852,7 @@ def get_relationships(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    d = json.loads(path.read_text())
-    payload = bg._payload(d)
+    payload = _graph_payload(path)
     return _paginate(payload["edges"])
 
 
@@ -848,8 +861,7 @@ def get_sources(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    d = json.loads(path.read_text())
-    payload = bg._payload(d)
+    payload = _graph_payload(path)
     # Group edges' source urls by publisher
     groups: dict[str, list[dict]] = defaultdict(list)
     for e in payload["edges"]:
