@@ -297,13 +297,77 @@ def _openregistry_available() -> bool:
     return bool(os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN")) or _OAUTH_FILE.exists()
 
 
-def _openregistry_client_kwargs() -> dict:
-    """Static bearer header if provided, otherwise the self-refreshing OAuth
-    provider loaded from the persisted token file."""
+_OR_ACCESS_CACHE: dict = {"token": None, "exp": 0.0}
+
+
+def _openregistry_token_endpoint() -> str:
+    import urllib.request
+    base = _OPENREGISTRY_URL.rsplit("/mcp", 1)[0].rstrip("/")
+    req = urllib.request.Request(
+        base + "/.well-known/oauth-authorization-server",
+        headers={"User-Agent": "investigator", "Accept": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=10).read())["token_endpoint"]
+
+
+def _refresh_openregistry_access_token() -> str | None:
+    """Refresh the access token via the stored (rotating) refresh token and
+    persist the new tokens. The MCP client's own auto-refresh is unreliable and
+    the access token lives only ~15 min, so we do it ourselves. Returns the
+    fresh access token, or None if there is nothing to refresh / it fails."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    d = json.loads(_OAUTH_FILE.read_text()) if _OAUTH_FILE.exists() else {}
+    tok, ci = d.get("tokens") or {}, d.get("client_info") or {}
+    refresh_token, client_id = tok.get("refresh_token"), ci.get("client_id")
+    if not (refresh_token and client_id):
+        return None
+    try:
+        body = urllib.parse.urlencode({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+        }).encode()
+        req = urllib.request.Request(
+            _openregistry_token_endpoint(), data=body,
+            headers={"User-Agent": "investigator", "Accept": "application/json",
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        new = json.loads(urllib.request.urlopen(req, timeout=15).read())
+    except Exception as e:  # noqa: BLE001
+        print(f"[openregistry] token refresh failed: {e}", file=sys.stderr)
+        return None
+    if not new.get("access_token"):
+        return None
+    d["tokens"] = {**tok, **new}   # rotated refresh_token is persisted
+    _OAUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _OAUTH_FILE.write_text(json.dumps(d))
+    return new["access_token"]
+
+
+def _openregistry_access_token() -> str | None:
+    now = time.time()
+    if _OR_ACCESS_CACHE["token"] and now < _OR_ACCESS_CACHE["exp"]:
+        return _OR_ACCESS_CACHE["token"]
+    access = _refresh_openregistry_access_token()
+    if access:
+        _OR_ACCESS_CACHE.update(token=access, exp=now + 800)  # refresh before the ~900s expiry
+    return access
+
+
+def _openregistry_client_kwargs() -> dict | None:
+    """Bearer header for the OpenRegistry MCP. A static
+    INVESTIGATOR_OPENREGISTRY_TOKEN wins; otherwise refresh the OAuth access
+    token ourselves (reliable, unlike the MCP client's auto-refresh). Returns
+    None when no usable token can be obtained -- the caller then SKIPS
+    OpenRegistry rather than triggering an (impossible, headless) interactive
+    re-auth. Reconnect via the UI/CLI to restore it."""
     token = os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN")
     if token:
         return {"headers": {"Authorization": f"Bearer {token}"}}
-    return {"auth": _build_openregistry_auth(interactive=False)}
+    access = _openregistry_access_token()
+    if access:
+        return {"headers": {"Authorization": f"Bearer {access}"}}
+    return None
 
 
 def openregistry_login() -> None:
@@ -332,15 +396,21 @@ def openregistry_enrich(node: dict) -> dict | None:
     set)."""
     if not _openregistry_available():
         return None
+    client_kwargs = _openregistry_client_kwargs()
+    if client_kwargs is None:
+        return None   # token expired and could not refresh -> skip cleanly
     import asyncio
 
     name = node["identifier"]
-    juris = ((node.get("data") or {}).get("location") or "").strip() or None
+    _loc = (node.get("data") or {}).get("location")
+    if isinstance(_loc, (list, tuple)):
+        _loc = _loc[0] if _loc else ""
+    juris = str(_loc or "").strip() or None
 
     async def _run():
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
-        async with streamablehttp_client(_OPENREGISTRY_URL, **_openregistry_client_kwargs()) as (read, write, _):
+        async with streamablehttp_client(_OPENREGISTRY_URL, **client_kwargs) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 
