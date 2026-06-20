@@ -110,6 +110,18 @@ export const api = {
     post<OpenRegistryStatus>("/api/integrations/openregistry/login"),
   openRegistryLogout: () =>
     post<OpenRegistryStatus>("/api/integrations/openregistry/logout"),
+  openRegistryComplete: async (redirectUrl: string) => {
+    const r = await fetch("/api/integrations/openregistry/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ redirectUrl }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json() as Promise<OpenRegistryStatus>;
+  },
 
   refineQuery: async (
     query: string,

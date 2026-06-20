@@ -7,6 +7,7 @@
   let busy = $state(false);
   let note = $state("");
   let err = $state("");
+  let pastedUrl = $state("");
   let poll: ReturnType<typeof setInterval> | null = null;
 
   async function refresh() {
@@ -39,6 +40,22 @@
       startPolling();
     } catch (e: any) {
       err = e?.message || "Login failed";
+    } finally {
+      busy = false;
+    }
+  }
+  async function complete() {
+    if (!pastedUrl.trim()) return;
+    busy = true;
+    err = "";
+    note = "";
+    try {
+      or = await api.openRegistryComplete(pastedUrl.trim());
+      note = or.connected ? "Connected." : (or.message || "Submitted.");
+      if (!or.connected) startPolling();
+      pastedUrl = "";
+    } catch (e: any) {
+      err = e?.message || "Could not complete login";
     } finally {
       busy = false;
     }
@@ -115,12 +132,29 @@
           </p>
         {/if}
 
-        {#if or?.loginInProgress && or?.authorizeUrl}
-          <p class="text-xs text-slate-400">
-            Browser didn't open?
-            <a class="text-emerald-400 hover:underline break-all" href={or.authorizeUrl} target="_blank" rel="noopener">
-              Open the authorization page</a>.
-          </p>
+        {#if or?.loginInProgress}
+          <div class="rounded border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+            <div class="text-xs text-slate-300 font-medium">Finish authorizing</div>
+            {#if or?.authorizeUrl}
+              <p class="text-xs text-slate-400">
+                1. <a class="text-emerald-400 hover:underline break-all" href={or.authorizeUrl} target="_blank" rel="noopener">Open the authorization page</a> and click Authorise.
+              </p>
+            {/if}
+            <p class="text-xs text-slate-400">
+              2. If your browser doesn't connect automatically, copy the URL it lands on
+              (it looks like <span class="mono">http://localhost:8765/callback?code=…</span>) and paste it here:
+            </p>
+            <div class="flex items-center gap-2">
+              <input
+                class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 placeholder-slate-500 text-xs mono"
+                placeholder="http://localhost:8765/callback?code=…&state=…"
+                bind:value={pastedUrl} />
+              <button
+                class="rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-sm text-emerald-200 hover:bg-emerald-900/70 disabled:opacity-50"
+                disabled={busy || !pastedUrl.trim()}
+                onclick={complete}>Complete</button>
+            </div>
+          </div>
         {/if}
         {#if note}<p class="text-xs text-emerald-300/90">{note}</p>{/if}
         {#if err}<p class="text-xs text-red-400">{err}</p>{/if}

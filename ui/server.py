@@ -787,6 +787,35 @@ def openregistry_login_start():
                     "message": "Authorize OpenRegistry in the browser window that just opened."})
 
 
+@app.route("/api/integrations/openregistry/complete", methods=["POST"])
+def openregistry_complete():
+    """Finish a login the browser couldn't auto-complete: the user pastes the
+    callback URL their browser landed on (…/callback?code=…&state=…). We forward
+    its query to the waiting login process over loopback, which always works."""
+    import enrichment
+    import urllib.parse
+    import urllib.request
+    if _OR_LOGIN_PROC is None or _OR_LOGIN_PROC.poll() is not None:
+        return _err(409, "no_login", "No login is in progress. Click Connect first.")
+    body = request.get_json(silent=True) or {}
+    pasted = (body.get("redirectUrl") or "").strip()
+    if not pasted:
+        return _err(400, "bad_request", "Paste the callback URL (…/callback?code=…&state=…).")
+    parsed = urllib.parse.urlparse(pasted if "://" in pasted else "http://x/?" + pasted.lstrip("?"))
+    qs = urllib.parse.parse_qs(parsed.query)
+    if not qs.get("code"):
+        return _err(400, "bad_request", "That URL has no ?code= parameter.")
+    port = enrichment._OAUTH_CALLBACK_PORT
+    url = f"http://127.0.0.1:{port}/callback?{urllib.parse.urlencode({k: v[0] for k, v in qs.items()})}"
+    try:
+        urllib.request.urlopen(url, timeout=5).read()
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "callback_forward_failed", f"Could not deliver the code: {e}")
+    # Give the login process a moment to exchange the code for tokens.
+    time.sleep(2)
+    return jsonify({**_openregistry_status(), "message": "Code delivered; finishing…"})
+
+
 @app.route("/api/integrations/openregistry/logout", methods=["POST"])
 def openregistry_logout():
     import enrichment
