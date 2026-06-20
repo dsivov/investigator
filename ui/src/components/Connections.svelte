@@ -147,8 +147,8 @@
     </div>
   </div>
 
-  <div class="relative flex-1">
-    <div bind:this={cyEl} class="absolute inset-0"></div>
+  <div class="flex-1 flex min-h-0 relative">
+    <div bind:this={cyEl} class="flex-1"></div>
     {#if result.nodes.length === 0}
       <div class="absolute inset-0 grid place-items-center text-slate-500">
         No relationships found between the selected entities.
