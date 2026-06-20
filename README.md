@@ -137,6 +137,72 @@ the same Iran that operates the Houthis. Worth examining together."
 
 ---
 
+## Connecting the dots: hidden relationships between entities
+
+The whole graph can be dense. When you want to ask a focused question — *how are
+**these** specific actors/events related?* — select any set of them in the
+**Data** tab and build a **Connections** subgraph on demand. Three modes:
+
+- **Shortest path** — the single thinnest route between each selected pair, plus
+  the intermediary ("connector") entities it passes through.
+- **Hidden (indirect)** — the interesting one. It finds the *non-obvious*
+  multi-hop chains (up to *k* distinct shortest paths per pair), so links that
+  run through intermediaries surface **even when a direct edge already exists**.
+  Intermediaries are ranked by **betweenness** and the central ones flagged as
+  **brokers** — the entities that actually bind the selection together.
+- **Direct only** — just the edges that exist directly among the selection.
+
+Pathfinding runs on the *relationship* edges only (the evidence-to-root scaffold
+is excluded, so connections aren't faked through the hub).
+
+> **Example (Netanyahu corruption run).** Select **Arnon Milchan** and **Shaul
+> Elovitch**. *Shortest path* shows only the obvious
+> `Milchan → Netanyahu → Elovitch`. *Hidden* mode also surfaces
+> `… → Bezeq → Elovitch` and `… → Walla! News → Elovitch` — the actual Case-4000
+> entities — and flags **Netanyahu** as the broker. The indirect structure a
+> shortest path hides.
+
+Hit **Analyse** and the connected subgraph — actors, events, relationships, and
+the computed paths — is sent to the LLM, which writes a short, evidence-grounded
+report on *how* the selected entities interconnect (naming each chain and what
+each broker bridges).
+
+---
+
+## Fact-checking: how many sources agree
+
+Corroboration — the core of fact-checking — is surfaced throughout the UI at two
+levels:
+
+- **Claim-level badges** on every actor and every piece of evidence (Data tab):
+  **weak** (1 source), **moderate** (2), **strong** (3+) — by how many
+  *independent* sources confirm the **same claim**. Claims are clustered by
+  meaning (paraphrases count together), and near-identical **syndicated** copies
+  collapse to one source — so a wire story reprinted by 20 outlets is *not*
+  mistaken for 20 confirmations.
+- **Confidence boost** in the scoring: an entity attested by more independent
+  sources is pushed further from neutral, so well-corroborated actors rank above
+  single-source ones (a single source still counts, just less).
+
+---
+
+## A cumulative knowledge graph across investigations (optional)
+
+With the analytics engine enabled, each finished investigation's graph can
+accumulate into **one persistent knowledge graph** (in-code LightRAG, no separate
+server), so later investigations can draw on what earlier ones found. Two pieces
+make this reliable:
+
+- A conservative **cross-investigation canonicalization** layer keeps the same
+  real-world entity from fragmenting across runs — it auto-merges only safe name
+  variants (exact + formatting) and routes fuzzy matches to a review log rather
+  than risking a wrong, permanent merge.
+- When a new investigation starts, it is **pre-seeded** with what the cumulative
+  KG already knows about its subject (prior entities and relationships), surfaced
+  alongside the fresh findings.
+
+---
+
 ## What this is NOT
 
 - **Not a causation engine.** It surfaces co-occurrence and source-attested
@@ -170,8 +236,11 @@ Three processes:
   serves the Cytoscape-ready graph/theme payloads.
 - **Frontend** (`ui/`, Svelte 5 + Vite, port **5180**) — the investigator UI:
   New-Investigation wizard (domain-aware query refinement + a vetoable review
-  step, plus a Sources step for adding your own PDFs/URLs), live progress, and
-  the Graph / TMFG-themes / Data / Report / Sources tabs.
+  step, plus a Sources step for adding your own PDFs/URLs), live progress, the
+  Graph / TMFG-themes / Data / Report / Sources tabs, on-demand **Connections**
+  analysis (select entities → hidden-relationship subgraph + LLM summary),
+  per-actor/per-evidence **corroboration** badges, and a **Settings** page for
+  connecting data providers.
 
 ---
 
@@ -234,6 +303,9 @@ Open **http://localhost:5180**.
 | `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |
 | `INVESTIGATOR_TMFG_UNIFORM_WEIGHTS=1` | Restore the old topology-only theme weighting (default is evidence-aware). |
 | `INVESTIGATOR_UI_MAX_CONCURRENT` | Max concurrent investigations the UI backend runs (default 1). |
+| `INVESTIGATOR_CORRO_GAIN` / `INVESTIGATOR_CORRO_CAP` | Multi-source corroboration confidence boost (default gain 0.35, cap 8). |
+| `INVESTIGATOR_CLAIM_SIM` / `INVESTIGATOR_SYNDICATION_SIM` | Claim-clustering / syndication thresholds for the fact-checking badges (default 0.78 / 0.97). |
+| `INVESTIGATOR_KG_LLM_MODEL` | OpenAI model for the cumulative-KG layer (default `gpt-4.1-mini`). |
 
 ---
 
@@ -299,6 +371,13 @@ Two free providers:
   machine with a browser and copy that file over (or point `INVESTIGATOR_OAUTH_DIR`
   at it).
 
+  You can also do this **without the CLI**, from the app: **Settings →
+  OpenRegistry → Connect**, which runs the same one-time browser authorisation
+  and shows live connection status. *Tip:* do the **Authorise** step in
+  **Firefox** — Chrome/Edge/Brave block the provider's redirect back to
+  `localhost`, so the login can't complete there (the Settings page also offers
+  a paste-the-callback-URL fallback).
+
 Disable a provider with `--no-edgar` / `--no-openregistry`. Note: enrichment
 sends extracted entity *names* to these external services.
 
@@ -309,6 +388,10 @@ sends extracted entity *names* to these external services.
 ```
 src/investigator/            Pipeline engine: NER, graph build, dedup/merge,
                          corroboration filter, TMFG, junction-tree BP.
+  graph/connector.py         Connections subgraph (shortest-path / hidden / brokers)
+  graph/corroboration.py     Claim-level multi-source corroboration (fact-check badges)
+  analytics/                 Cumulative KG: in-code LightRAG merge + cross-
+                             investigation canonicalization + retrieval
 research/
   cross_event_investigation.py   CLI driver for a multi-query run
   enhanced_retrieval.py          Query-expansion + rerank + entity-deepening
