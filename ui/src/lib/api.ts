@@ -63,6 +63,24 @@ export const api = {
     }
     return r.json();
   },
+
+  // LLM summary of how the selected entities interconnect (connected nodes only).
+  analyzeConnections: async (
+    id: string,
+    entities: string[],
+    mode: "shortest_path" | "induced" = "shortest_path"
+  ): Promise<{ report: string; connected?: number; message?: string }> => {
+    const r = await fetch(`/api/investigations/${id}/connect/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entities, mode }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
   artifactUrl: (id: string, name: string) =>
     `/api/investigations/${id}/artifacts/${name}`,
   logUrl: (id: string) => `/api/investigations/${id}/log`,

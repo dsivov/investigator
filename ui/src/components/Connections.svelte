@@ -1,14 +1,55 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { api } from "../lib/api";
   import { loadCytoscape } from "../lib/cytoscape";
   import { ETYPE_COLOR } from "../lib/colors";
   import type { ConnectorResult } from "../lib/types";
 
-  let { result, onClose }: { result: ConnectorResult; onClose: () => void } = $props();
+  let {
+    result,
+    id,
+    mode = "shortest_path",
+    onClose,
+  }: {
+    result: ConnectorResult;
+    id: string;
+    mode?: "shortest_path" | "induced";
+    onClose: () => void;
+  } = $props();
 
   let cy: any = null;
   let cyEl: HTMLDivElement;
   let detail = $state<string | null>(null);
+
+  // Analysis (LLM summary of the connected subgraph).
+  let analyzing = $state(false);
+  let reportHtml = $state<string>("");
+  let analyzeErr = $state("");
+  let analyzeMsg = $state("");
+  let showReport = $state(false);
+
+  async function analyse() {
+    showReport = true;
+    if (reportHtml || analyzing) return;
+    analyzing = true;
+    analyzeErr = "";
+    analyzeMsg = "";
+    try {
+      const [res, { marked }] = await Promise.all([
+        api.analyzeConnections(id, result.selected, mode),
+        import("marked"),
+      ]);
+      if (res.message) analyzeMsg = res.message;
+      if (res.report) {
+        marked.setOptions({ headerIds: false, mangle: false } as any);
+        reportHtml = marked.parse(res.report) as string;
+      }
+    } catch (e: any) {
+      analyzeErr = e?.message || "Analysis failed";
+    } finally {
+      analyzing = false;
+    }
+  }
 
   onMount(() => {
     let destroyed = false;
@@ -141,6 +182,13 @@
         <span class="inline-block w-3 h-3 rounded-full" style="background:#475569"></span> connector
       </span>
       <button
+        class="rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-emerald-200 hover:bg-emerald-900/70 disabled:opacity-50"
+        disabled={result.stats.edgeCount === 0 || analyzing}
+        onclick={analyse}
+        title="Summarise how the connected entities interrelate (LLM)"
+        >{analyzing ? "Analysing…" : "Analyse"}</button
+      >
+      <button
         class="rounded border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
         onclick={onClose}>Close</button
       >
@@ -155,9 +203,47 @@
       </div>
     {/if}
     {#if detail}
-      <div class="absolute bottom-3 left-3 right-3 rounded border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300">
+      <div class="absolute bottom-3 left-3 rounded border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 max-w-[60%]">
         {detail}
       </div>
     {/if}
+
+    {#if showReport}
+      <aside class="absolute right-0 top-0 bottom-0 w-[460px] max-w-[90%] border-l border-slate-800 bg-slate-900 flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 px-4 py-2 text-sm">
+          <span class="font-semibold text-slate-200">Connection analysis</span>
+          <button class="text-slate-400 hover:text-slate-200 text-xs" onclick={() => (showReport = false)}>hide</button>
+        </div>
+        <div class="flex-1 overflow-y-auto scrollbar p-4 text-sm text-slate-300">
+          {#if analyzing}
+            <div class="text-slate-500">Summarising the connected network…</div>
+          {:else if analyzeErr}
+            <div class="text-red-400">{analyzeErr}</div>
+          {:else if analyzeMsg}
+            <div class="text-amber-400">{analyzeMsg}</div>
+          {:else}
+            <div class="report-md">{@html reportHtml}</div>
+          {/if}
+        </div>
+      </aside>
+    {/if}
   </div>
 </div>
+
+<style>
+  .report-md :global(h2) {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    margin: 1rem 0 0.4rem;
+  }
+  .report-md :global(h2:first-child) { margin-top: 0; }
+  .report-md :global(p) { margin: 0.4rem 0; line-height: 1.5; }
+  .report-md :global(ul) { list-style: disc; padding-left: 1.1rem; margin: 0.4rem 0; }
+  .report-md :global(li) { margin: 0.25rem 0; line-height: 1.45; }
+  .report-md :global(strong) { color: #e2e8f0; }
+  .report-md :global(code) {
+    background: #0f172a; padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em;
+  }
+</style>

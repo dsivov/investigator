@@ -166,7 +166,7 @@
 </div>
 
 {#if connResult}
-  <Connections result={connResult} onClose={() => (connResult = null)} />
+  <Connections result={connResult} {id} mode={connectMode} onClose={() => (connResult = null)} />
 {/if}
 
 <div class="flex-1 overflow-auto scrollbar p-4">

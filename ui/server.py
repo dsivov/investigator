@@ -126,6 +126,99 @@ def _get_refiner():
         _REFINER = False
         return None
 
+
+_ANALYZER = None
+
+
+def _get_analyzer():
+    """Cached dspy predictor that summarises a connector subgraph into a report,
+    or None if the LLM stack is unavailable."""
+    global _ANALYZER
+    if _ANALYZER is not None:
+        return _ANALYZER if _ANALYZER is not False else None
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=str(ROOT.parent / ".env"), override=False)
+        import dspy
+
+        class AnalyseConnections(dspy.Signature):
+            """You are an OSINT analyst. You are given a focused network of
+            entities (actors and events) selected from a larger investigation:
+            the relationships between them and the evidence backing each actor.
+            Write a concise analytical report explaining HOW these entities are
+            interconnected.
+
+            Rules:
+            - Centre the report on the connections: who links to whom, through
+              what relationship, and via which intermediary (connector) actors.
+            - Ground every statement in the supplied relationships/evidence;
+              never invent links or facts that are not present.
+            - Where corroboration is given, reflect confidence accordingly
+              (well-corroborated vs single-source).
+            - Output GitHub-flavoured Markdown: a '## Summary' (2-4 sentences),
+              then '## Key connections' as bullet points. Specific and concise,
+              no preamble.
+            """
+            network: str = dspy.InputField(desc="Actors, events, relationships and evidence")
+            report: str = dspy.OutputField()
+
+        lm = dspy.LM("openai/gpt-4.1", temperature=0.2, max_tokens=1400)
+        predictor = dspy.Predict(AnalyseConnections)
+
+        def _run(network: str) -> str:
+            with dspy.context(lm=lm):
+                out = predictor(network=network)
+            return (out.report or "").strip()
+
+        _ANALYZER = _run
+        return _ANALYZER
+    except Exception as e:  # noqa: BLE001
+        print(f"[analyze] LLM unavailable: {e}", file=sys.stderr)
+        _ANALYZER = False
+        return None
+
+
+def _describe_connection_network(result: dict) -> str:
+    """Render the CONNECTED part of a connector subgraph (nodes that take part
+    in at least one edge) as text for the analyzer. Isolated/unreachable
+    selections are omitted."""
+    edges = result.get("edges") or []
+    connected = {x for e in edges for x in (e.get("source"), e.get("target")) if x}
+    nodes = [n for n in (result.get("nodes") or []) if n.get("id") in connected]
+    actors = [n for n in nodes if n.get("type") != "event"]
+    events = [n for n in nodes if n.get("type") == "event"]
+
+    lines: list[str] = ["ACTORS (role; corroboration):"]
+    for n in actors:
+        corr = n.get("corroboration")
+        tag = n.get("role", "")
+        if corr:
+            tag += f"; {corr} corroboration"
+        lines.append(f"- {n['id']} [{tag}]")
+        evs = sorted(
+            n.get("evidence") or [],
+            key=lambda e: (-(e.get("corroborationSources") or 0), -(e.get("strength") or 0)),
+        )[:5]
+        for ev in evs:
+            txt = (ev.get("reasoning") or "").strip()[:240]
+            if txt:
+                pol = "supports" if ev.get("supports") else "contradicts"
+                lines.append(f"    - ({pol}) {txt}")
+    if events:
+        lines += ["", "EVENTS:"]
+        for n in events:
+            d = n.get("data") or {}
+            date = d.get("date") or ""
+            desc = (d.get("description") or "").strip()[:200]
+            lines.append(f"- {n['id']}" + (f" ({date})" if date else "") + (f": {desc}" if desc else ""))
+    lines += ["", "RELATIONSHIPS:"]
+    for e in edges:
+        rel = e.get("rtype") or e.get("type") or "related"
+        ctx = (e.get("context") or "").strip()[:240]
+        lines.append(f"- {e.get('source')} --[{rel}]--> {e.get('target')}" + (f" : {ctx}" if ctx else ""))
+    return "\n".join(lines)
+
+
 ARTIFACTS_DIR = (ROOT.parent / "news_investigations" / "cross_event").resolve()
 UPLOADS_DIR = (ROOT.parent / "news_investigations" / "uploads").resolve()
 SCHEMA_VERSION = "1"
@@ -834,6 +927,41 @@ def connect_entities(inv_id):
         mode=mode, max_hops=max_hops,
     )
     return jsonify(result)
+
+
+@app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])
+def analyze_connections(inv_id):
+    """LLM summary of how the selected entities interconnect. Only the connected
+    part of the connector subgraph (nodes with edges) is submitted."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    body = request.get_json(silent=True) or {}
+    selected = body.get("entities") or []
+    if not isinstance(selected, list) or len(selected) < 2:
+        return _err(400, "bad_request", "Provide at least 2 entity ids in 'entities'.")
+    mode = body.get("mode") or "shortest_path"
+    if mode not in ("shortest_path", "induced"):
+        return _err(400, "bad_request", f"Unknown mode {mode!r}.")
+    payload = _graph_payload(path)
+    result = connector_subgraph(
+        payload["nodes"], payload["edges"], [str(s) for s in selected], mode=mode,
+    )
+    if not result["edges"]:
+        return jsonify({
+            "report": "", "connected": 0,
+            "message": "The selected entities are not interconnected, so there is nothing to summarise.",
+        })
+    analyzer = _get_analyzer()
+    if analyzer is None:
+        return _err(503, "llm_unavailable", "Analysis model unavailable (check OPENAI_API_KEY).")
+    network = _describe_connection_network(result)
+    try:
+        report = analyzer(network)
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "llm_error", f"Analysis failed: {type(e).__name__}: {e}")
+    connected = len({x for e in result["edges"] for x in (e["source"], e["target"])})
+    return jsonify({"report": report, "connected": connected, "stats": result["stats"]})
 
 
 @app.route("/api/investigations/<inv_id>/tmfg", methods=["GET"])
