@@ -733,10 +733,21 @@ _OR_LOGIN_LOG = Path("/tmp/investigator_openregistry_login.log")
 _AUTH_URL_RE = re.compile(r"https?://\S+")
 
 
+def _has_openregistry_tokens(token_file: Path) -> bool:
+    # The file exists after Dynamic Client Registration even before any token is
+    # granted, so "connected" must require an actual access token, not just the
+    # file's presence.
+    try:
+        d = json.loads(token_file.read_text())
+        return bool((d.get("tokens") or {}).get("access_token"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _openregistry_status() -> dict:
     import enrichment
     static = bool(os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN"))
-    has_file = enrichment._OAUTH_FILE.exists()
+    has_file = _has_openregistry_tokens(enrichment._OAUTH_FILE)
     running = _OR_LOGIN_PROC is not None and _OR_LOGIN_PROC.poll() is None
     authorize_url = ""
     if running and _OR_LOGIN_LOG.exists():
@@ -768,8 +779,8 @@ def openregistry_login_start():
                         "message": "A static INVESTIGATOR_OPENREGISTRY_TOKEN is set; no login needed."})
     if _OR_LOGIN_PROC is not None and _OR_LOGIN_PROC.poll() is None:
         return jsonify({**_openregistry_status(), "message": "Login already in progress."})
-    cmd = [sys.executable, str(REPO / "research" / "enrichment.py"), "--openregistry-login"]
-    env = {**os.environ, "PYTHONPATH": f"{REPO}{os.pathsep}{REPO / 'src'}"}
+    cmd = [sys.executable, "-u", str(REPO / "research" / "enrichment.py"), "--openregistry-login"]
+    env = {**os.environ, "PYTHONPATH": f"{REPO}{os.pathsep}{REPO / 'src'}", "PYTHONUNBUFFERED": "1"}
     fh = open(_OR_LOGIN_LOG, "w")
     _OR_LOGIN_PROC = subprocess.Popen(cmd, cwd=str(REPO), env=env, stdout=fh, stderr=subprocess.STDOUT)
     return jsonify({**_openregistry_status(),

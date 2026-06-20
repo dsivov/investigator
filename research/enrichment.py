@@ -221,6 +221,7 @@ def _interactive_oauth_handlers():
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            print(f"[openregistry] callback hit: {self.path}", flush=True)
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             captured["code"] = (qs.get("code") or [None])[0]
             captured["state"] = (qs.get("state") or [None])[0]
@@ -232,7 +233,7 @@ def _interactive_oauth_handlers():
             pass
 
     async def redirect_handler(url: str):
-        print(f"\n[openregistry] Authorize access in your browser:\n  {url}\n")
+        print(f"\n[openregistry] Authorize access in your browser:\n  {url}\n", flush=True)
         try:
             webbrowser.open(url)
         except Exception:  # noqa: BLE001 -- headless: just print the URL
@@ -240,9 +241,13 @@ def _interactive_oauth_handlers():
 
     async def callback_handler():
         import asyncio
-        srv = HTTPServer(("localhost", _OAUTH_CALLBACK_PORT), _Handler)
+        # 0.0.0.0 so the redirect reaches us whether the browser uses localhost
+        # or 127.0.0.1; handle one request (the OAuth callback).
+        srv = HTTPServer(("0.0.0.0", _OAUTH_CALLBACK_PORT), _Handler)
+        print(f"[openregistry] waiting for OAuth callback on :{_OAUTH_CALLBACK_PORT}/callback", flush=True)
         await asyncio.get_event_loop().run_in_executor(None, srv.handle_request)
         srv.server_close()
+        print(f"[openregistry] callback received (code={'yes' if captured.get('code') else 'no'})", flush=True)
         return captured.get("code"), captured.get("state")
 
     return redirect_handler, callback_handler
