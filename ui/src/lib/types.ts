@@ -100,6 +100,7 @@ export interface ConnectorResult {
   selected: string[];
   connectors: string[];
   missing: string[];
+  paths?: Array<{ from: string; to: string; path: string[]; hops: number }>;
   unreachablePairs: string[][];
   stats: {
     selectedCount: number;

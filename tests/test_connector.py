@@ -49,6 +49,13 @@ def test_shortest_path_pulls_in_connector():
     assert roles["X"] == "connector"
     assert r["connectors"] == ["X"]
     assert r["stats"]["unreachablePairs"] == 0
+    # the explicit path A->X->D is returned
+    assert r["paths"] == [{"from": "A", "to": "D", "path": ["A", "X", "D"], "hops": 2}]
+
+
+def test_induced_paths_are_direct_edges():
+    r = connector_subgraph(GRAPH_NODES, GRAPH_EDGES, ["A", "B"], mode="induced")
+    assert r["paths"] == [{"from": "A", "to": "B", "path": ["A", "B"], "hops": 1}]
 
 
 def test_structural_hub_does_not_create_short_paths():

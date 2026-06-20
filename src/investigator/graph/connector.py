@@ -55,6 +55,7 @@ def connector_subgraph(
 
     keep: set[str] = set(sel)
     unreachable: list[list[str]] = []
+    paths: list[dict] = []   # explicit shortest path per selected pair
 
     if mode == "shortest_path":
         for i in range(len(sel)):
@@ -69,7 +70,19 @@ def connector_subgraph(
                     unreachable.append([u, v])
                     continue
                 keep.update(path)
-    elif mode != "induced":
+                paths.append({"from": u, "to": v, "path": path, "hops": len(path) - 1})
+    elif mode == "induced":
+        # direct links among the selection are the "paths" in this mode
+        present = set(sel)
+        seen: set[frozenset] = set()
+        for e in edges:
+            if e.get("structural") or e.get("type") in exclude_types:
+                continue
+            s, t = e.get("source"), e.get("target")
+            if s in present and t in present and s != t and frozenset((s, t)) not in seen:
+                seen.add(frozenset((s, t)))
+                paths.append({"from": s, "to": t, "path": [s, t], "hops": 1})
+    else:
         raise ValueError(f"unknown connector mode: {mode!r}")
 
     sel_set = set(sel)
@@ -90,6 +103,7 @@ def connector_subgraph(
         "selected": sel,
         "connectors": connectors,
         "missing": missing,
+        "paths": paths,
         "unreachablePairs": unreachable,
         "stats": {
             "selectedCount": len(sel),

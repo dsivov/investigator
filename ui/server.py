@@ -149,9 +149,10 @@ def _get_analyzer():
 
             Your report MUST focus on the RELATIONSHIPS and CONNECTIONS between
             the entities -- NOT on summarising each entity in isolation:
-            - Explain how the selected entities connect to one another: directly,
-              or indirectly through which connector entities (spell out the chain
-              / path, e.g. "A -> X -> D").
+            - Use the supplied CONNECTION PATHS as the backbone: each is the
+              pre-computed shortest route linking a pair of selected entities.
+              Explain every path -- direct, or indirectly through which connector
+              entities -- naming the chain (e.g. "A -> X -> D").
             - Characterise each relationship -- its type, direction, and what it
               implies. Call out any connector entity that acts as a bridge or hub
               linking several others.
@@ -218,9 +219,17 @@ def _describe_connection_network(result: dict) -> str:
     lines: list[str] = [
         f"SELECTED ENTITIES (connect these): {', '.join(selected) or '(none)'}",
         f"CONNECTOR (intermediary) ENTITIES: {', '.join(connectors) or '(none)'}",
-        "",
-        "RELATIONSHIPS (the connections -- source --[type]--> target : context):",
     ]
+    # Pre-computed shortest path per selected pair -- the backbone of the report.
+    pathlist = result.get("paths") or []
+    if pathlist:
+        lines += ["", "CONNECTION PATHS (pre-computed shortest route per selected pair):"]
+        for p in pathlist:
+            chain = " -> ".join(p.get("path") or [])
+            hops = p.get("hops")
+            label = "direct" if hops == 1 else f"{hops} hops"
+            lines.append(f"- {chain}  ({label})")
+    lines += ["", "RELATIONSHIPS (the connections -- source --[type]--> target : context):"]
     for e in edges:
         rel = e.get("rtype") or e.get("type") or "related"
         ctx = _txt(e.get("context"), 240)
