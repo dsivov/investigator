@@ -65,6 +65,15 @@ def evidence_probability(evidences: list[dict]) -> float:
     only on the winning side, and only when they carry a usable magnitude, so a
     single source (or unattributed evidence) leaves the result unchanged.
     """
+    return assess_evidence(evidences)[0]
+
+
+def assess_evidence(evidences: list[dict]) -> tuple[float, int]:
+    """Like :func:`evidence_probability`, but also return the number of distinct
+    corroborating sources -- the independent sources on the winning (net) side
+    that drove the confidence boost. ``(prob, n_sources)``; ``(0.0, 0)`` for no
+    credible evidence. The count is uncapped (true distinct sources) even though
+    the boost itself saturates at ``CORRO_CAP``."""
     weighted_sum = 0.0
     total_confidence = 0.0
     pos_sources: set[str] = set()
@@ -86,14 +95,25 @@ def evidence_probability(evidences: list[dict]) -> float:
         if src and magnitude > 0:
             (pos_sources if supports else neg_sources).add(src)
     if total_confidence == 0:
-        return 0.0
+        return 0.0, 0
     signal = weighted_sum / total_confidence
     winning = pos_sources if signal >= 0 else neg_sources
-    n_src = min(len(winning), CORRO_CAP)
-    if n_src > 1:
-        factor = 1.0 + CORRO_GAIN * math.log2(n_src)
+    n_src = len(winning)
+    capped = min(n_src, CORRO_CAP)
+    if capped > 1:
+        factor = 1.0 + CORRO_GAIN * math.log2(capped)
         signal = max(-1.0, min(1.0, signal * factor))
-    return (signal + 1.0) / 2.0
+    return (signal + 1.0) / 2.0, n_src
+
+
+def corroboration_tier(n_sources: int) -> str:
+    """Fact-checking strength label from distinct corroborating source count:
+    >=3 strong, 2 moderate, otherwise weak (one or no identifiable source)."""
+    if n_sources >= 3:
+        return "strong"
+    if n_sources == 2:
+        return "moderate"
+    return "weak"
 
 
 def _evidence_source_key(e: dict) -> str | None:

@@ -17,7 +17,9 @@ from investigator.graph.filter import filter_by_corroboration
 from investigator.graph.junction_tree import BeliefPropagationResult, propagate as junction_tree_propagate
 from investigator.graph.tmfg import construct_tmfg, tetrahedron_weight
 from investigator.graph.operations import (
+    assess_evidence,
     build_graph,
+    corroboration_tier,
     evidence_probability,
     filter_nodes_by_score,
     score_graph_by_connectivity,
@@ -55,6 +57,8 @@ __all__ = [
     "merge_data_fields",
     "merge_run_into_saved",
     "evidence_probability",
+    "assess_evidence",
+    "corroboration_tier",
     "preprocess_text",
     "resolve_edge_endpoints",
     "score_graph_by_connectivity",

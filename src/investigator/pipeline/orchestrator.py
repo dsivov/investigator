@@ -44,7 +44,8 @@ from investigator.graph import (
     deduplicate_entities,
     infer_event_temporal_edges,
     validate_entity_canonicals,
-    evidence_probability,
+    assess_evidence,
+    corroboration_tier,
     filter_by_corroboration,
     group_edges_by_chunk,
     junction_tree_propagate,
@@ -531,9 +532,14 @@ async def node_and_evidence_consolidator(working_state, merged_entities, root, r
     for node in merged_entities:
         evidence = node.get("evidence", [])
         if evidence:
-            node["prob"] = evidence_probability(evidence)
-            node["leaf"] = node["prob"] > 0
-            node["hypothesis"] = node["prob"] >= 0.5
+            prob, n_sources = assess_evidence(evidence)
+            node["prob"] = prob
+            node["leaf"] = prob > 0
+            node["hypothesis"] = prob >= 0.5
+            # Fact-checking corroboration surfaced to the UI: how many distinct
+            # sources back the net conclusion (1->weak, 2->moderate, 3+->strong).
+            node["corroboration_sources"] = n_sources
+            node["corroboration"] = corroboration_tier(n_sources)
         else:
             node["prob"] = 0.0
             node["leaf"] = False

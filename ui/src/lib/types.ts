@@ -56,6 +56,8 @@ export interface GraphNode {
   isBridge: boolean;
   labels: string[];
   evidenceCount: number;
+  corroboration: "weak" | "moderate" | "strong";
+  corroborationSources: number;
   posterior: number;
   score: number;
   data: Record<string, unknown>;
