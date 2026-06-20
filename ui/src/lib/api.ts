@@ -12,7 +12,17 @@ import type {
   Domain,
   SourcesPayload,
   ConnectorResult,
+  OpenRegistryStatus,
 } from "./types";
+
+async function post<T>(path: string): Promise<T> {
+  const r = await fetch(path, { method: "POST" });
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error((b as any)?.message || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
 
 const BASE = "";
 
@@ -92,6 +102,14 @@ export const api = {
 
   listDomains: () =>
     get<{ items: Domain[]; total: number }>("/api/domains"),
+
+  // Integrations: OpenRegistry company-registry login (one-time browser OAuth).
+  getOpenRegistry: () =>
+    get<OpenRegistryStatus>("/api/integrations/openregistry"),
+  openRegistryLogin: () =>
+    post<OpenRegistryStatus>("/api/integrations/openregistry/login"),
+  openRegistryLogout: () =>
+    post<OpenRegistryStatus>("/api/integrations/openregistry/logout"),
 
   refineQuery: async (
     query: string,

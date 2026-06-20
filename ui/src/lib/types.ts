@@ -92,6 +92,17 @@ export interface GraphPayload {
   edges: GraphEdge[];
 }
 
+export interface OpenRegistryStatus {
+  provider: string;
+  url: string;
+  connected: boolean;
+  method: "static_token" | "oauth" | "none";
+  loginInProgress: boolean;
+  authorizeUrl: string;
+  message?: string;
+  removed?: boolean;
+}
+
 export type ConnectorNode = GraphNode & { role: "selected" | "connector" };
 
 export interface ConnectorResult {

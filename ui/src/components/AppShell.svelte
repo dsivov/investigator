@@ -57,6 +57,10 @@
         class="nav-link {route.name === 'domains' ? 'active' : ''}"
         onclick={() => navigate("#/domains")}>Domains</button
       >
+      <button
+        class="nav-link {route.name === 'settings' ? 'active' : ''}"
+        onclick={() => navigate("#/settings")}>Settings</button
+      >
     </nav>
 
     <div class="mt-6 px-5 text-[10px] uppercase tracking-wider text-slate-500">Recent</div>

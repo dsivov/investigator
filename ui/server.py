@@ -719,6 +719,76 @@ def health():
     return jsonify({"status": "ok", "schema": SCHEMA_VERSION, "artifactsDir": str(ARTIFACTS_DIR)})
 
 
+# ---------------------------------------------------------------------------
+# Integrations: OpenRegistry login (one-time browser OAuth, local/desktop).
+# The Connect flow spawns research/enrichment.py --openregistry-login as a
+# subprocess; it opens the user's browser and catches the OAuth callback on
+# localhost, persisting auto-refreshing tokens. Works because the UI server and
+# browser are on the same machine -- a hosted deployment would need the UI
+# server itself to be the OAuth client.
+# ---------------------------------------------------------------------------
+
+_OR_LOGIN_PROC: subprocess.Popen | None = None
+_OR_LOGIN_LOG = Path("/tmp/investigator_openregistry_login.log")
+_AUTH_URL_RE = re.compile(r"https?://\S+")
+
+
+def _openregistry_status() -> dict:
+    import enrichment
+    static = bool(os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN"))
+    has_file = enrichment._OAUTH_FILE.exists()
+    running = _OR_LOGIN_PROC is not None and _OR_LOGIN_PROC.poll() is None
+    authorize_url = ""
+    if running and _OR_LOGIN_LOG.exists():
+        for line in _OR_LOGIN_LOG.read_text(errors="ignore").splitlines():
+            if "Authorize" in line or "/authorize" in line:
+                m = _AUTH_URL_RE.search(line)
+                if m:
+                    authorize_url = m.group(0)
+    return {
+        "provider": "openregistry",
+        "url": enrichment._OPENREGISTRY_URL,
+        "connected": static or has_file,
+        "method": "static_token" if static else ("oauth" if has_file else "none"),
+        "loginInProgress": running,
+        "authorizeUrl": authorize_url,
+    }
+
+
+@app.route("/api/integrations/openregistry", methods=["GET"])
+def openregistry_status():
+    return jsonify(_openregistry_status())
+
+
+@app.route("/api/integrations/openregistry/login", methods=["POST"])
+def openregistry_login_start():
+    global _OR_LOGIN_PROC
+    if os.environ.get("INVESTIGATOR_OPENREGISTRY_TOKEN"):
+        return jsonify({**_openregistry_status(),
+                        "message": "A static INVESTIGATOR_OPENREGISTRY_TOKEN is set; no login needed."})
+    if _OR_LOGIN_PROC is not None and _OR_LOGIN_PROC.poll() is None:
+        return jsonify({**_openregistry_status(), "message": "Login already in progress."})
+    cmd = [sys.executable, str(REPO / "research" / "enrichment.py"), "--openregistry-login"]
+    env = {**os.environ, "PYTHONPATH": f"{REPO}{os.pathsep}{REPO / 'src'}"}
+    fh = open(_OR_LOGIN_LOG, "w")
+    _OR_LOGIN_PROC = subprocess.Popen(cmd, cwd=str(REPO), env=env, stdout=fh, stderr=subprocess.STDOUT)
+    return jsonify({**_openregistry_status(),
+                    "message": "Authorize OpenRegistry in the browser window that just opened."})
+
+
+@app.route("/api/integrations/openregistry/logout", methods=["POST"])
+def openregistry_logout():
+    import enrichment
+    removed = False
+    if enrichment._OAUTH_FILE.exists():
+        try:
+            enrichment._OAUTH_FILE.unlink()
+            removed = True
+        except OSError as e:
+            return _err(500, "logout_failed", str(e))
+    return jsonify({**_openregistry_status(), "removed": removed})
+
+
 @app.route("/api/domains", methods=["GET"])
 def list_domains():
     out = []
