@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { loadCytoscape } from "../lib/cytoscape";
   import { ETYPE_COLOR } from "../lib/colors";
   import type { ConnectorResult } from "../lib/types";
@@ -11,8 +11,17 @@
   let detail = $state<string | null>(null);
 
   onMount(() => {
-    buildCy();
+    let destroyed = false;
+    (async () => {
+      // The modal is a freshly-opened fixed overlay -- wait for it to be laid
+      // out (a paint) before init, else Cytoscape sees a 0x0 container and
+      // fcose positions everything into nothing (blank canvas).
+      await tick();
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      if (!destroyed) await buildCy();
+    })();
     return () => {
+      destroyed = true;
       if (cy) { cy.destroy(); cy = null; }
     };
   });
@@ -98,10 +107,14 @@
       const d = evt.target.data();
       detail = `${d.source} → ${d.target} · ${d.rtype || d.type}${d.context ? " — " + d.context : ""}`;
     });
-    cy.layout({
+    cy.resize();
+    const layout = cy.layout({
       name: "fcose", animate: true, randomize: false,
       nodeRepulsion: 8000, idealEdgeLength: 110, gravity: 0.2,
-    }).run();
+      fit: true, padding: 50,
+    });
+    layout.one("layoutstop", () => cy && cy.fit(undefined, 50));
+    layout.run();
   }
 </script>
 
