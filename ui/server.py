@@ -182,6 +182,18 @@ def _describe_connection_network(result: dict) -> str:
     """Render the CONNECTED part of a connector subgraph (nodes that take part
     in at least one edge) as text for the analyzer. Isolated/unreachable
     selections are omitted."""
+    def _txt(v, limit: int = 0) -> str:
+        # Graph fields can be str / None / list (e.g. an event's description),
+        # so coerce before any string op.
+        if isinstance(v, (list, tuple)):
+            s = " ".join(_txt(x) for x in v)
+        elif v is None:
+            s = ""
+        else:
+            s = str(v)
+        s = s.strip()
+        return s[:limit] if limit else s
+
     edges = result.get("edges") or []
     connected = {x for e in edges for x in (e.get("source"), e.get("target")) if x}
     nodes = [n for n in (result.get("nodes") or []) if n.get("id") in connected]
@@ -200,7 +212,7 @@ def _describe_connection_network(result: dict) -> str:
             key=lambda e: (-(e.get("corroborationSources") or 0), -(e.get("strength") or 0)),
         )[:5]
         for ev in evs:
-            txt = (ev.get("reasoning") or "").strip()[:240]
+            txt = _txt(ev.get("reasoning"), 240)
             if txt:
                 pol = "supports" if ev.get("supports") else "contradicts"
                 lines.append(f"    - ({pol}) {txt}")
@@ -208,13 +220,13 @@ def _describe_connection_network(result: dict) -> str:
         lines += ["", "EVENTS:"]
         for n in events:
             d = n.get("data") or {}
-            date = d.get("date") or ""
-            desc = (d.get("description") or "").strip()[:200]
+            date = _txt(d.get("date"))
+            desc = _txt(d.get("description"), 200)
             lines.append(f"- {n['id']}" + (f" ({date})" if date else "") + (f": {desc}" if desc else ""))
     lines += ["", "RELATIONSHIPS:"]
     for e in edges:
         rel = e.get("rtype") or e.get("type") or "related"
-        ctx = (e.get("context") or "").strip()[:240]
+        ctx = _txt(e.get("context"), 240)
         lines.append(f"- {e.get('source')} --[{rel}]--> {e.get('target')}" + (f" : {ctx}" if ctx else ""))
     return "\n".join(lines)
 
@@ -955,8 +967,8 @@ def analyze_connections(inv_id):
     analyzer = _get_analyzer()
     if analyzer is None:
         return _err(503, "llm_unavailable", "Analysis model unavailable (check OPENAI_API_KEY).")
-    network = _describe_connection_network(result)
     try:
+        network = _describe_connection_network(result)
         report = analyzer(network)
     except Exception as e:  # noqa: BLE001
         return _err(502, "llm_error", f"Analysis failed: {type(e).__name__}: {e}")
