@@ -142,24 +142,35 @@ def _get_analyzer():
         import dspy
 
         class AnalyseConnections(dspy.Signature):
-            """You are an OSINT analyst. You are given a focused network of
-            entities (actors and events) selected from a larger investigation:
-            the relationships between them and the evidence backing each actor.
-            Write a concise analytical report explaining HOW these entities are
-            interconnected.
+            """You are an OSINT analyst. You are given a focused network selected
+            from a larger investigation: SELECTED entities, the CONNECTOR
+            (intermediary) entities that link them, the relationships (edges)
+            between all of them, and supporting evidence.
 
-            Rules:
-            - Centre the report on the connections: who links to whom, through
-              what relationship, and via which intermediary (connector) actors.
-            - Ground every statement in the supplied relationships/evidence;
-              never invent links or facts that are not present.
-            - Where corroboration is given, reflect confidence accordingly
-              (well-corroborated vs single-source).
-            - Output GitHub-flavoured Markdown: a '## Summary' (2-4 sentences),
-              then '## Key connections' as bullet points. Specific and concise,
-              no preamble.
+            Your report MUST focus on the RELATIONSHIPS and CONNECTIONS between
+            the entities -- NOT on summarising each entity in isolation:
+            - Explain how the selected entities connect to one another: directly,
+              or indirectly through which connector entities (spell out the chain
+              / path, e.g. "A -> X -> D").
+            - Characterise each relationship -- its type, direction, and what it
+              implies. Call out any connector entity that acts as a bridge or hub
+              linking several others.
+            - Where visible, describe the larger structure (hubs, clusters,
+              chains) the links form.
+            - Use the evidence ONLY to substantiate and characterise the links;
+              do not list standalone facts that don't bear on a connection.
+            - Reflect corroboration strength when stating how well-established a
+              link is. Ground every statement in the supplied data; never invent
+              links or facts.
+
+            Output GitHub-flavoured Markdown:
+            ## Summary  -- 2-3 sentences on the overall shape of the network and
+            the main connection(s).
+            ## Connections  -- one bullet per link or chain, each phrased as a
+            relationship (e.g. "**A** is linked to **D** via **X**, who ...").
+            Be specific and concise; no preamble.
             """
-            network: str = dspy.InputField(desc="Actors, events, relationships and evidence")
+            network: str = dspy.InputField(desc="Selected/connector entities, relationships and evidence")
             report: str = dspy.OutputField()
 
         lm = dspy.LM("openai/gpt-4.1", temperature=0.2, max_tokens=1400)
@@ -199,35 +210,44 @@ def _describe_connection_network(result: dict) -> str:
     nodes = [n for n in (result.get("nodes") or []) if n.get("id") in connected]
     actors = [n for n in nodes if n.get("type") != "event"]
     events = [n for n in nodes if n.get("type") == "event"]
+    selected = [n["id"] for n in nodes if n.get("role") == "selected"]
+    connectors = [n["id"] for n in actors if n.get("role") == "connector"]
 
-    lines: list[str] = ["ACTORS (role; corroboration):"]
-    for n in actors:
-        corr = n.get("corroboration")
-        tag = n.get("role", "")
-        if corr:
-            tag += f"; {corr} corroboration"
-        lines.append(f"- {n['id']} [{tag}]")
-        evs = sorted(
-            n.get("evidence") or [],
-            key=lambda e: (-(e.get("corroborationSources") or 0), -(e.get("strength") or 0)),
-        )[:5]
-        for ev in evs:
-            txt = _txt(ev.get("reasoning"), 240)
-            if txt:
-                pol = "supports" if ev.get("supports") else "contradicts"
-                lines.append(f"    - ({pol}) {txt}")
+    # Roster first so the model frames the report around the connection
+    # structure (which nodes to connect, which are intermediaries).
+    lines: list[str] = [
+        f"SELECTED ENTITIES (connect these): {', '.join(selected) or '(none)'}",
+        f"CONNECTOR (intermediary) ENTITIES: {', '.join(connectors) or '(none)'}",
+        "",
+        "RELATIONSHIPS (the connections -- source --[type]--> target : context):",
+    ]
+    for e in edges:
+        rel = e.get("rtype") or e.get("type") or "related"
+        ctx = _txt(e.get("context"), 240)
+        lines.append(f"- {e.get('source')} --[{rel}]--> {e.get('target')}" + (f" : {ctx}" if ctx else ""))
     if events:
-        lines += ["", "EVENTS:"]
+        lines += ["", "EVENTS in this network:"]
         for n in events:
             d = n.get("data") or {}
             date = _txt(d.get("date"))
             desc = _txt(d.get("description"), 200)
             lines.append(f"- {n['id']}" + (f" ({date})" if date else "") + (f": {desc}" if desc else ""))
-    lines += ["", "RELATIONSHIPS:"]
-    for e in edges:
-        rel = e.get("rtype") or e.get("type") or "related"
-        ctx = _txt(e.get("context"), 240)
-        lines.append(f"- {e.get('source')} --[{rel}]--> {e.get('target')}" + (f" : {ctx}" if ctx else ""))
+    # Evidence is secondary -- only to characterise the links, capped tight.
+    lines += ["", "SUPPORTING EVIDENCE per entity (use only to characterise the links above):"]
+    for n in actors:
+        evs = sorted(
+            n.get("evidence") or [],
+            key=lambda e: (-(e.get("corroborationSources") or 0), -(e.get("strength") or 0)),
+        )[:3]
+        if not evs:
+            continue
+        corr = n.get("corroboration")
+        lines.append(f"- {n['id']}" + (f" [{corr} corroboration]" if corr else "") + ":")
+        for ev in evs:
+            txt = _txt(ev.get("reasoning"), 220)
+            if txt:
+                pol = "supports" if ev.get("supports") else "contradicts"
+                lines.append(f"    - ({pol}) {txt}")
     return "\n".join(lines)
 
 
