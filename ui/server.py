@@ -47,6 +47,8 @@ import build_tmfg_prototype as bt         # noqa: E402
 import build_customer_report as bcr       # noqa: E402
 import domain_presets as dp               # noqa: E402
 
+from investigator.graph.connector import connector_subgraph  # noqa: E402
+
 
 # bg._payload now runs WordLlama claim-corroboration clustering, and the
 # graph/entities/events/relationships/sources endpoints each rebuild it for the
@@ -806,6 +808,32 @@ def get_graph(inv_id):
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
     return jsonify(_graph_payload(path))
+
+
+@app.route("/api/investigations/<inv_id>/connect", methods=["POST"])
+def connect_entities(inv_id):
+    """Connector subgraph between a chosen set of entities/events: shortest-path
+    union over relationship edges, surfacing intermediary connector nodes."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    body = request.get_json(silent=True) or {}
+    selected = body.get("entities") or []
+    if not isinstance(selected, list) or len(selected) < 2:
+        return _err(400, "bad_request", "Provide at least 2 entity ids in 'entities'.")
+    mode = body.get("mode") or "shortest_path"
+    if mode not in ("shortest_path", "induced"):
+        return _err(400, "bad_request", f"Unknown mode {mode!r}.")
+    try:
+        max_hops = int(body.get("maxHops") or 4)
+    except (TypeError, ValueError):
+        max_hops = 4
+    payload = _graph_payload(path)
+    result = connector_subgraph(
+        payload["nodes"], payload["edges"], [str(s) for s in selected],
+        mode=mode, max_hops=max_hops,
+    )
+    return jsonify(result)
 
 
 @app.route("/api/investigations/<inv_id>/tmfg", methods=["GET"])

@@ -1,13 +1,42 @@
 <script lang="ts">
   import { api } from "../../lib/api";
-  import type { GraphPayload, GraphNode } from "../../lib/types";
+  import type { GraphPayload, GraphNode, ConnectorResult } from "../../lib/types";
   import { threadColourMap } from "../../lib/colors";
   import { publisherOf } from "../../lib/helpers";
+  import Connections from "../Connections.svelte";
 
   let { id }: { id: string } = $props();
   let graph = $state<GraphPayload | null>(null);
   let view = $state<"entities" | "events" | "relationships" | "evidence">("entities");
   let q = $state("");
+
+  // Selection for the connector subgraph (Actors/Events rows).
+  let selectedIds = $state<Set<string>>(new Set());
+  let connectMode = $state<"shortest_path" | "induced">("shortest_path");
+  let connResult = $state<ConnectorResult | null>(null);
+  let connecting = $state(false);
+  let connError = $state("");
+
+  function toggleSelect(idv: string) {
+    const s = new Set(selectedIds);
+    s.has(idv) ? s.delete(idv) : s.add(idv);
+    selectedIds = s;
+  }
+  function clearSelection() {
+    selectedIds = new Set();
+  }
+  async function buildConnections() {
+    if (selectedIds.size < 2) return;
+    connecting = true;
+    connError = "";
+    try {
+      connResult = await api.connect(id, [...selectedIds], connectMode);
+    } catch (e: any) {
+      connError = e?.message || "Failed to build connections";
+    } finally {
+      connecting = false;
+    }
+  }
   // Default the Actors view to `score` (relevance × prob = distance-to-subject
   // weighted), not raw evidence count: on a broad single-subject query, raw
   // prob/evidence floats topically-related-but-off-subject entities to the top
@@ -111,16 +140,41 @@
     placeholder="Search…"
     bind:value={q}
   />
+  {#if view === "entities" || view === "events"}
+    <span class="text-slate-700">·</span>
+    <select
+      class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+      bind:value={connectMode}
+      title="shortest-path = include linking (connector) entities; direct = only edges among the selection"
+    >
+      <option value="shortest_path">shortest path</option>
+      <option value="induced">direct only</option>
+    </select>
+    <button
+      class="rounded-md border px-2 py-1 {selectedIds.size >= 2 ? 'border-emerald-700 bg-emerald-900/40 text-emerald-200' : 'border-slate-700 text-slate-500'}"
+      disabled={selectedIds.size < 2 || connecting}
+      onclick={buildConnections}
+    >{connecting ? "Building…" : `Build connections (${selectedIds.size})`}</button>
+    {#if selectedIds.size}
+      <button class="text-slate-400 hover:text-slate-200" onclick={clearSelection}>clear</button>
+    {/if}
+    {#if connError}<span class="text-red-400">{connError}</span>{/if}
+  {/if}
   <div class="ml-auto text-slate-400 mono">
     {rows.length}{#if rows.length === 500}+{/if} rows
   </div>
 </div>
+
+{#if connResult}
+  <Connections result={connResult} onClose={() => (connResult = null)} />
+{/if}
 
 <div class="flex-1 overflow-auto scrollbar p-4">
   <table class="min-w-full text-sm border-separate border-spacing-0">
     <thead class="sticky top-0 bg-slate-900 z-10">
       {#if view === "entities"}
         <tr>
+          <th class="th w-8"></th>
           <th class="th sortable" onclick={() => sortBy("id")}>Actor</th>
           <th class="th sortable" onclick={() => sortBy("type")}>Type</th>
           <th class="th">Threads</th>
@@ -131,6 +185,7 @@
         </tr>
       {:else if view === "events"}
         <tr>
+          <th class="th w-8"></th>
           <th class="th sortable" onclick={() => sortBy("id")}>Event</th>
           <th class="th sortable" onclick={() => sortBy("date")}>Date</th>
           <th class="th">Type</th>
@@ -161,7 +216,8 @@
     <tbody>
       {#if view === "entities"}
         {#each rows as r}
-          <tr class="hover:bg-slate-800/40 border-b border-slate-800/40">
+          <tr class="hover:bg-slate-800/40 border-b border-slate-800/40 {selectedIds.has(r.id) ? 'bg-emerald-900/20' : ''}">
+            <td class="td"><input type="checkbox" checked={selectedIds.has(r.id)} onchange={() => toggleSelect(r.id)} /></td>
             <td class="td text-slate-200">{r.id}</td>
             <td class="td">{r.type === "event" ? "Event" : "Actor"}</td>
             <td class="td">
@@ -185,7 +241,8 @@
         {/each}
       {:else if view === "events"}
         {#each rows as r}
-          <tr class="hover:bg-slate-800/40 border-b border-slate-800/40">
+          <tr class="hover:bg-slate-800/40 border-b border-slate-800/40 {selectedIds.has(r.id) ? 'bg-emerald-900/20' : ''}">
+            <td class="td"><input type="checkbox" checked={selectedIds.has(r.id)} onchange={() => toggleSelect(r.id)} /></td>
             <td class="td text-slate-200">{r.id}</td>
             <td class="td">{r.data?.date || ""}</td>
             <td class="td">{r.data?.event_type || ""}</td>

@@ -11,6 +11,7 @@ import type {
   TmfgPayload,
   Domain,
   SourcesPayload,
+  ConnectorResult,
 } from "./types";
 
 const BASE = "";
@@ -44,6 +45,24 @@ export const api = {
     get<TmfgPayload>(`/api/investigations/${id}/tmfg`),
   getSources: (id: string) =>
     get<SourcesPayload>(`/api/investigations/${id}/sources`),
+
+  // Connector subgraph between selected entities/events (shortest-path union).
+  connect: async (
+    id: string,
+    entities: string[],
+    mode: "shortest_path" | "induced" = "shortest_path"
+  ): Promise<ConnectorResult> => {
+    const r = await fetch(`/api/investigations/${id}/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entities, mode }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
   artifactUrl: (id: string, name: string) =>
     `/api/investigations/${id}/artifacts/${name}`,
   logUrl: (id: string) => `/api/investigations/${id}/log`,

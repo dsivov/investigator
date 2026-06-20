@@ -92,6 +92,23 @@ export interface GraphPayload {
   edges: GraphEdge[];
 }
 
+export type ConnectorNode = GraphNode & { role: "selected" | "connector" };
+
+export interface ConnectorResult {
+  nodes: ConnectorNode[];
+  edges: GraphEdge[];
+  selected: string[];
+  connectors: string[];
+  missing: string[];
+  unreachablePairs: string[][];
+  stats: {
+    selectedCount: number;
+    connectorCount: number;
+    edgeCount: number;
+    unreachablePairs: number;
+  };
+}
+
 export interface ThemePayload {
   idx: number;
   members: string[];
