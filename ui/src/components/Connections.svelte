@@ -13,7 +13,7 @@
   }: {
     result: ConnectorResult;
     id: string;
-    mode?: "shortest_path" | "induced";
+    mode?: "shortest_path" | "hidden" | "induced";
     onClose: () => void;
   } = $props();
 
@@ -79,7 +79,8 @@
           data: { ...n },
           classes:
             (n.type === "event" ? "is-event" : "is-actor") +
-            (n.role === "selected" ? " is-selected" : " is-connector"),
+            (n.role === "selected" ? " is-selected" : " is-connector") +
+            (n.isBroker ? " is-broker" : ""),
         })),
         ...result.edges.map((e) => ({
           data: { ...e, edgeColour: ETYPE_COLOR[e.type] || "#475569" },
@@ -121,6 +122,16 @@
           style: { "background-color": "#475569", opacity: 0.9 },
         },
         {
+          // Broker = central hidden connector (high betweenness): amber ring.
+          selector: "node.is-broker",
+          style: {
+            "border-color": "#f59e0b",
+            "border-width": 4,
+            width: 34,
+            height: 34,
+          },
+        },
+        {
           selector: "edge",
           style: {
             "curve-style": "bezier",
@@ -142,7 +153,9 @@
     });
     cy.on("tap", "node", (evt: any) => {
       const n = result.nodes.find((x) => x.id === evt.target.id());
-      if (n) detail = `${n.id} · ${n.role}${n.type === "event" ? " · event" : ""}`;
+      if (n) detail = `${n.id} · ${n.role}${n.isBroker ? " · broker" : ""}`
+        + `${n.type === "event" ? " · event" : ""}`
+        + (n.role === "connector" ? ` · betweenness ${n.betweenness.toFixed(3)}` : "");
     });
     cy.on("tap", "edge", (evt: any) => {
       const d = evt.target.data();
@@ -164,7 +177,8 @@
     <span class="font-semibold text-slate-200">Connections</span>
     <span class="text-slate-400 mono text-xs">
       {result.stats.selectedCount} selected · {result.stats.connectorCount} connector(s) ·
-      {result.stats.edgeCount} edge(s)
+      {#if result.stats.brokerCount}{result.stats.brokerCount} broker(s) · {/if}
+      {result.stats.edgeCount} edge(s){#if result.stats.pathCount} · {result.stats.pathCount} path(s){/if}
     </span>
     {#if result.stats.unreachablePairs > 0}
       <span class="text-amber-400 text-xs">
@@ -181,6 +195,11 @@
       <span class="flex items-center gap-1 text-slate-400">
         <span class="inline-block w-3 h-3 rounded-full" style="background:#475569"></span> connector
       </span>
+      {#if result.stats.brokerCount}
+        <span class="flex items-center gap-1 text-slate-400">
+          <span class="inline-block w-3 h-3 rounded-full border-2" style="border-color:#f59e0b;background:#475569"></span> broker
+        </span>
+      {/if}
       <button
         class="rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-emerald-200 hover:bg-emerald-900/70 disabled:opacity-50"
         disabled={result.stats.edgeCount === 0 || analyzing}

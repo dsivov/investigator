@@ -60,7 +60,7 @@ export const api = {
   connect: async (
     id: string,
     entities: string[],
-    mode: "shortest_path" | "induced" = "shortest_path"
+    mode: "shortest_path" | "hidden" | "induced" = "shortest_path"
   ): Promise<ConnectorResult> => {
     const r = await fetch(`/api/investigations/${id}/connect`, {
       method: "POST",
@@ -78,7 +78,7 @@ export const api = {
   analyzeConnections: async (
     id: string,
     entities: string[],
-    mode: "shortest_path" | "induced" = "shortest_path"
+    mode: "shortest_path" | "hidden" | "induced" = "shortest_path"
   ): Promise<{ report: string; connected?: number; message?: string }> => {
     const r = await fetch(`/api/investigations/${id}/connect/analyze`, {
       method: "POST",

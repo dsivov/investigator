@@ -98,6 +98,35 @@ def test_returned_edges_exclude_structural():
     assert all(not e.get("structural") for e in r["edges"])
 
 
+# Two routes A..D:  A-X-D (2 hops)  and  A-Y-Z-D (3 hops, the hidden chain).
+HIDDEN_NODES = _nodes("A", "D", "X", "Y", "Z")
+HIDDEN_EDGES = [_edge("A", "X"), _edge("X", "D"),
+                _edge("A", "Y"), _edge("Y", "Z"), _edge("Z", "D")]
+
+
+def test_hidden_mode_surfaces_indirect_paths():
+    sp = connector_subgraph(HIDDEN_NODES, HIDDEN_EDGES, ["A", "D"], mode="shortest_path")
+    assert {n["id"] for n in sp["nodes"]} == {"A", "X", "D"}          # only the 2-hop route
+    hi = connector_subgraph(HIDDEN_NODES, HIDDEN_EDGES, ["A", "D"], mode="hidden", k=2)
+    assert {n["id"] for n in hi["nodes"]} == {"A", "X", "D", "Y", "Z"}  # + the hidden A-Y-Z-D chain
+    assert hi["stats"]["pathCount"] == 2
+    assert sorted(p["hops"] for p in hi["paths"]) == [2, 3]
+
+
+def test_hidden_mode_flags_broker():
+    hi = connector_subgraph(HIDDEN_NODES, HIDDEN_EDGES, ["A", "D"], mode="hidden", k=3)
+    assert "X" in hi["brokers"]            # X sits on the shortest route -> top broker
+    xnode = next(n for n in hi["nodes"] if n["id"] == "X")
+    assert xnode["isBroker"] and xnode["role"] == "connector"
+    assert xnode["betweenness"] > 0
+
+
+def test_hidden_respects_max_hops():
+    # cap at 2 hops: the 3-hop A-Y-Z-D chain is excluded, only A-X-D remains.
+    hi = connector_subgraph(HIDDEN_NODES, HIDDEN_EDGES, ["A", "D"], mode="hidden", k=5, max_hops=2)
+    assert {n["id"] for n in hi["nodes"]} == {"A", "X", "D"}
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0

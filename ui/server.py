@@ -149,10 +149,13 @@ def _get_analyzer():
 
             Your report MUST focus on the RELATIONSHIPS and CONNECTIONS between
             the entities -- NOT on summarising each entity in isolation:
-            - Use the supplied CONNECTION PATHS as the backbone: each is the
-              pre-computed shortest route linking a pair of selected entities.
-              Explain every path -- direct, or indirectly through which connector
-              entities -- naming the chain (e.g. "A -> X -> D").
+            - Use the supplied CONNECTION PATHS as the backbone: each is a
+              pre-computed route linking a pair of selected entities. There may
+              be several per pair -- a direct one AND indirect (hidden) chains
+              through intermediaries. Explain each, naming the chain ("A -> X ->
+              D"), and call out non-obvious indirect links explicitly.
+            - Highlight the KEY BROKERS: these are the central intermediaries
+              that bridge the selection; explain what each brokers between.
             - Characterise each relationship -- its type, direction, and what it
               implies. Call out any connector entity that acts as a bridge or hub
               linking several others.
@@ -220,10 +223,14 @@ def _describe_connection_network(result: dict) -> str:
         f"SELECTED ENTITIES (connect these): {', '.join(selected) or '(none)'}",
         f"CONNECTOR (intermediary) ENTITIES: {', '.join(connectors) or '(none)'}",
     ]
-    # Pre-computed shortest path per selected pair -- the backbone of the report.
+    brokers = result.get("brokers") or []
+    if brokers:
+        lines += ["", f"KEY BROKERS (central intermediaries bridging the selection): {', '.join(brokers)}"]
+    # Pre-computed paths per selected pair -- the backbone of the report. In
+    # hidden mode there are several per pair (direct + indirect chains).
     pathlist = result.get("paths") or []
     if pathlist:
-        lines += ["", "CONNECTION PATHS (pre-computed shortest route per selected pair):"]
+        lines += ["", "CONNECTION PATHS (pre-computed routes per selected pair; multiple = alternative/indirect links):"]
         for p in pathlist:
             chain = " -> ".join(p.get("path") or [])
             hops = p.get("hops")
@@ -1066,16 +1073,20 @@ def connect_entities(inv_id):
     if not isinstance(selected, list) or len(selected) < 2:
         return _err(400, "bad_request", "Provide at least 2 entity ids in 'entities'.")
     mode = body.get("mode") or "shortest_path"
-    if mode not in ("shortest_path", "induced"):
+    if mode not in ("shortest_path", "hidden", "induced"):
         return _err(400, "bad_request", f"Unknown mode {mode!r}.")
     try:
         max_hops = int(body.get("maxHops") or 4)
     except (TypeError, ValueError):
         max_hops = 4
+    try:
+        k = max(1, min(8, int(body.get("k") or 3)))
+    except (TypeError, ValueError):
+        k = 3
     payload = _graph_payload(path)
     result = connector_subgraph(
         payload["nodes"], payload["edges"], [str(s) for s in selected],
-        mode=mode, max_hops=max_hops,
+        mode=mode, max_hops=max_hops, k=k,
     )
     return jsonify(result)
 
@@ -1092,11 +1103,15 @@ def analyze_connections(inv_id):
     if not isinstance(selected, list) or len(selected) < 2:
         return _err(400, "bad_request", "Provide at least 2 entity ids in 'entities'.")
     mode = body.get("mode") or "shortest_path"
-    if mode not in ("shortest_path", "induced"):
+    if mode not in ("shortest_path", "hidden", "induced"):
         return _err(400, "bad_request", f"Unknown mode {mode!r}.")
+    try:
+        k = max(1, min(8, int(body.get("k") or 3)))
+    except (TypeError, ValueError):
+        k = 3
     payload = _graph_payload(path)
     result = connector_subgraph(
-        payload["nodes"], payload["edges"], [str(s) for s in selected], mode=mode,
+        payload["nodes"], payload["edges"], [str(s) for s in selected], mode=mode, k=k,
     )
     if not result["edges"]:
         return jsonify({

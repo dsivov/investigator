@@ -103,20 +103,27 @@ export interface OpenRegistryStatus {
   removed?: boolean;
 }
 
-export type ConnectorNode = GraphNode & { role: "selected" | "connector" };
+export type ConnectorNode = GraphNode & {
+  role: "selected" | "connector";
+  betweenness: number;
+  isBroker: boolean;
+};
 
 export interface ConnectorResult {
   nodes: ConnectorNode[];
   edges: GraphEdge[];
   selected: string[];
   connectors: string[];
+  brokers: string[];
   missing: string[];
   paths?: Array<{ from: string; to: string; path: string[]; hops: number }>;
   unreachablePairs: string[][];
   stats: {
     selectedCount: number;
     connectorCount: number;
+    brokerCount?: number;
     edgeCount: number;
+    pathCount?: number;
     unreachablePairs: number;
   };
 }

@@ -12,7 +12,7 @@
 
   // Selection for the connector subgraph (Actors/Events rows).
   let selectedIds = $state<Set<string>>(new Set());
-  let connectMode = $state<"shortest_path" | "induced">("shortest_path");
+  let connectMode = $state<"shortest_path" | "hidden" | "induced">("shortest_path");
   let connResult = $state<ConnectorResult | null>(null);
   let connecting = $state(false);
   let connError = $state("");
@@ -145,9 +145,10 @@
     <select
       class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
       bind:value={connectMode}
-      title="shortest-path = include linking (connector) entities; direct = only edges among the selection"
+      title="shortest path = the single thinnest route; hidden = indirect multi-hop chains too (find non-obvious links); direct = only edges among the selection"
     >
       <option value="shortest_path">shortest path</option>
+      <option value="hidden">hidden (indirect)</option>
       <option value="induced">direct only</option>
     </select>
     <button
