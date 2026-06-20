@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from investigator.graph.corroboration import claim_corroboration  # noqa: E402
+from investigator.graph.corroboration import claim_corroboration, corroborate  # noqa: E402
 
 
 def _ev(text, source, strength=0.8, confidence=0.9, hypothesis=True):
@@ -95,6 +95,43 @@ def test_contradicting_evidence_uses_dominant_side():
     ], claim_sim=0.5, syndication_sim=0.99)
     assert r["sources"] == 2, r
     assert r["tier"] == "moderate"
+
+
+# --- per-evidence corroboration (corroborate.items) -------------------------
+
+def test_per_evidence_items_aligned_and_tiered():
+    evs = [
+        _ev("Netanyahu accepted expensive gifts from Arnon Milchan", "a"),   # claim A
+        _ev("Netanyahu received costly presents from Milchan", "b"),         # claim A
+        _ev("Netanyahu took luxury goods from businessman Arnon Milchan", "c"),  # claim A
+        _ev("Netanyahu launched a plan to overhaul the judiciary", "a"),     # claim B (lone)
+    ]
+    r = corroborate(evs, claim_sim=0.5, syndication_sim=0.99)
+    items = r["items"]
+    assert len(items) == len(evs)               # aligned by index
+    # the 3 gift-claim items are corroborated by 3 independent sources
+    assert all(items[i]["tier"] == "strong" and items[i]["sources"] == 3 for i in (0, 1, 2)), items
+    # the lone judiciary claim is weak (only 1 source attests it)
+    assert items[3]["tier"] == "weak" and items[3]["sources"] == 1, items[3]
+    # node summary picks the best claim
+    assert r["node"]["sources"] == 3 and r["node"]["tier"] == "strong"
+
+
+def test_per_evidence_syndication_marks_items_weak():
+    claim = "Netanyahu accepted luxury gifts from Arnon Milchan in exchange for favours"
+    r = corroborate([_ev(claim, "outletA"), _ev(claim, "outletB")],
+                    claim_sim=0.5, syndication_sim=0.99)
+    assert [it["tier"] for it in r["items"]] == ["weak", "weak"]
+    assert all(it["sources"] == 1 for it in r["items"])
+
+
+def test_per_evidence_ineligible_items_are_weak_zero():
+    # index 1 has no source -> not eligible -> weak/0, but indices stay aligned
+    evs = [_ev("Netanyahu accepted gifts from Milchan", "a"),
+           {"reasoning": "no source", "strength": 0.8, "confidence": 0.9, "hypothesis": True}]
+    r = corroborate(evs, claim_sim=0.5, syndication_sim=0.99)
+    assert len(r["items"]) == 2
+    assert r["items"][1] == {"tier": "weak", "sources": 0}
 
 
 def _run_standalone() -> int:

@@ -61,22 +61,35 @@ def _trim(s: str, n: int = 220) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def claim_corroboration(
+def corroborate(
     evidences: list[dict],
     *,
     claim_sim: float = CLAIM_SIM,
     syndication_sim: float = SYNDICATION_SIM,
 ) -> dict:
-    """Return ``{tier, sources, claim, corroborated_claims}`` for an entity.
+    """Cluster an entity's evidence into claims and measure independent-source
+    corroboration at BOTH levels::
 
-    ``sources`` is the independent-source count of the best-corroborated claim,
-    ``claim`` its representative text, ``corroborated_claims`` how many claims
-    have >= 2 independent sources.
+        {
+          "node":  {tier, sources, claim, corroborated_claims},  # actor summary
+          "items": [{tier, sources}, ...],                       # per evidence, by index
+        }
+
+    ``node`` summarises the best-corroborated claim on the dominant (net) side.
+    ``items`` is aligned to ``evidences`` -- each evidence carries the corroboration
+    of the claim it belongs to (how many independent sources confirm that claim),
+    so the Evidence view can show which specific claims are weak vs strong.
+    Claims are clustered within polarity (a support and a contradiction of the
+    same proposition are different claims); near-identical/syndicated copies are
+    collapsed to one independent source.
     """
-    empty = {"tier": "weak", "sources": 0, "claim": "", "corroborated_claims": 0}
+    n_ev = len(evidences or [])
+    per_item = [{"tier": "weak", "sources": 0} for _ in range(n_ev)]
+    node = {"tier": "weak", "sources": 0, "claim": "", "corroborated_claims": 0}
+
+    items: list[tuple[int, str, str, bool]] = []   # (orig_idx, text, source, supports)
     signed = 0.0
-    cand: list[tuple[str, str, bool]] = []
-    for e in evidences or []:
+    for i, e in enumerate(evidences or []):
         conf = e.get("confidence") or 0.0
         mag = e.get("strength")
         if conf <= 0 or not isinstance(mag, (int, float)) or mag <= 0:
@@ -86,33 +99,55 @@ def claim_corroboration(
         src = _source_key(e)
         txt = _claim_text(e)
         if src and txt:
-            cand.append((txt, src, supports))
+            items.append((i, txt, src, supports))
+    if not items:
+        return {"node": node, "items": per_item}
 
     dominant = signed >= 0
-    pool = [(t, s) for (t, s, sup) in cand if sup == dominant][:_MAX_POOL]
-    if not pool:
-        return empty
-    if len(pool) == 1:
-        return {"tier": "weak", "sources": 1, "claim": _trim(pool[0][0]), "corroborated_claims": 0}
+    best_n, best_claim, dom_corroborated = 0, "", 0
+    for pol in (True, False):
+        grp = [it for it in items if it[3] == pol][:_MAX_POOL]
+        if not grp:
+            continue
+        texts = [t for _, t, _, _ in grp]
+        grp_sources = [s for _, _, s, _ in grp]
+        if len(grp) == 1:
+            clusters, sim = [[0]], None
+        else:
+            sim = _cosine_matrix(texts)
+            clusters = _greedy_clusters(sim, claim_sim)
+        for cl in clusters:
+            n = 1 if sim is None else _independent_sources(cl, sim, grp_sources, syndication_sim)
+            tier = corroboration_tier(n)
+            for k in cl:
+                per_item[grp[k][0]] = {"tier": tier, "sources": n}
+            if pol == dominant:
+                if n >= 2:
+                    dom_corroborated += 1
+                if n > best_n:
+                    best_n, best_claim = n, texts[cl[0]]
 
-    texts = [t for t, _ in pool]
-    sources = [s for _, s in pool]
-    sim = _cosine_matrix(texts)
-    clusters = _greedy_clusters(sim, claim_sim)
-
-    best_n, best_idx, corroborated = 1, clusters[0][0], 0
-    for cl in clusters:
-        n = _independent_sources(cl, sim, sources, syndication_sim)
-        if n >= 2:
-            corroborated += 1
-        if n > best_n:
-            best_n, best_idx = n, cl[0]
-    return {
+    if best_n == 0:   # dominant side had only singleton claims
+        dom = next((it for it in items if it[3] == dominant), None)
+        best_n, best_claim = 1, (dom[1] if dom else "")
+    node = {
         "tier": corroboration_tier(best_n),
         "sources": best_n,
-        "claim": _trim(texts[best_idx]),
-        "corroborated_claims": corroborated,
+        "claim": _trim(best_claim),
+        "corroborated_claims": dom_corroborated,
     }
+    return {"node": node, "items": per_item}
+
+
+def claim_corroboration(
+    evidences: list[dict],
+    *,
+    claim_sim: float = CLAIM_SIM,
+    syndication_sim: float = SYNDICATION_SIM,
+) -> dict:
+    """Actor-level summary only -- ``corroborate(...)["node"]``. See
+    :func:`corroborate` for the per-evidence breakdown."""
+    return corroborate(evidences, claim_sim=claim_sim, syndication_sim=syndication_sim)["node"]
 
 
 def _cosine_matrix(texts: list[str]) -> np.ndarray:

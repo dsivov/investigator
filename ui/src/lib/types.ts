@@ -46,6 +46,10 @@ export interface EvidenceRecord {
   strength: number;
   confidence: number;
   supports: boolean;
+  // Claim-level corroboration of THIS evidence's claim (independent sources
+  // confirming the same fact). weak = 1, moderate = 2, strong = 3+.
+  corroboration: "weak" | "moderate" | "strong";
+  corroborationSources: number;
 }
 
 export interface GraphNode {

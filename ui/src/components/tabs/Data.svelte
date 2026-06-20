@@ -141,6 +141,7 @@
         <tr>
           <th class="th sortable" onclick={() => sortBy("entity")}>Entity</th>
           <th class="th sortable" onclick={() => sortBy("supports")}>Polarity</th>
+          <th class="th sortable" onclick={() => sortBy("corroborationSources")}>Corroboration</th>
           <th class="th">Reasoning &amp; quotes</th>
           <th class="th sortable" onclick={() => sortBy("strength")}>Str</th>
           <th class="th sortable" onclick={() => sortBy("confidence")}>Conf</th>
@@ -209,6 +210,12 @@
               {:else}
                 <span class="text-red-400 text-xs">contradicts</span>
               {/if}
+            </td>
+            <td class="td align-top">
+              <span
+                class="inline-block rounded border px-1.5 py-0.5 text-xs capitalize {CORRO_STYLE[r.corroboration] ?? CORRO_STYLE.weak}"
+                title="{r.corroborationSources ?? 1} independent source(s) confirm this claim"
+              >{r.corroboration ?? "weak"}{#if r.corroborationSources}<span class="mono ml-1 opacity-70">{r.corroborationSources}</span>{/if}</span>
             </td>
             <td class="td text-slate-300 text-xs align-top max-w-xl">
               <div>{r.reasoning}</div>

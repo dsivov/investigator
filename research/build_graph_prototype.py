@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from investigator.graph.corroboration import claim_corroboration
+from investigator.graph.corroboration import corroborate
 
 
 def _payload(d: dict) -> dict:
@@ -63,7 +63,8 @@ def _payload(d: dict) -> dict:
             lab = str(lab).strip()
             if lab and lab.upper() != ident.upper() and lab not in clean_labels:
                 clean_labels.append(lab)
-        _cc = claim_corroboration(n.get("evidence") or [])
+        _cc = corroborate(n.get("evidence") or [])
+        _cc_node = _cc["node"]
         out_nodes.append({
             "id": ident,
             "label": ident if len(ident) <= 38 else ident[:35] + "…",
@@ -72,14 +73,14 @@ def _payload(d: dict) -> dict:
             "isBridge": ident in bridge_set,
             "labels": clean_labels[:6],
             "evidenceCount": int(n.get("evidence_count") or 0),
-            "corroboration": _cc["tier"],
-            "corroborationSources": _cc["sources"],
-            "corroboratedClaim": _cc["claim"],
-            "corroboratedClaims": _cc["corroborated_claims"],
+            "corroboration": _cc_node["tier"],
+            "corroborationSources": _cc_node["sources"],
+            "corroboratedClaim": _cc_node["claim"],
+            "corroboratedClaims": _cc_node["corroborated_claims"],
             "posterior": float(n.get("posterior_prob") or 0.0),
             "score": float(n.get("score") or 0.0),
             "data": _node_data_subset(n),
-            "evidence": _evidence_subset(n),
+            "evidence": _evidence_subset(n, _cc["items"]),
         })
 
     # Edges: keep the semantic relationship types AND the `evidence`
@@ -149,12 +150,15 @@ def _payload(d: dict) -> dict:
     }
 
 
-def _evidence_subset(node: dict) -> list[dict]:
+def _evidence_subset(node: dict, corr_items: list[dict] | None = None) -> list[dict]:
     """Compact form of each evidence record for the UI's Evidence view.
-    Carries the source-grounded reasoning, the actual quotes, the
-    source URL/publisher, and the strength/confidence/polarity."""
+    Carries the source-grounded reasoning, the actual quotes, the source
+    URL/publisher, the strength/confidence/polarity, and the claim-level
+    corroboration (how many independent sources confirm this evidence's claim).
+    ``corr_items`` is aligned by index to ``node['evidence']`` (from
+    ``corroborate``)."""
     out = []
-    for ev in (node.get("evidence") or []):
+    for i, ev in enumerate(node.get("evidence") or []):
         if not isinstance(ev, dict):
             continue
         meta = ev.get("metadata") or {}
@@ -162,6 +166,7 @@ def _evidence_subset(node: dict) -> list[dict]:
         quotes = ev.get("evidence") or []
         if isinstance(quotes, str):
             quotes = [quotes]
+        ci = corr_items[i] if (corr_items and i < len(corr_items)) else {"tier": "weak", "sources": 0}
         out.append({
             "reasoning": str(ev.get("reasoning") or "").strip()[:600],
             "quotes": [str(q).strip() for q in quotes if str(q).strip()][:4],
@@ -169,6 +174,8 @@ def _evidence_subset(node: dict) -> list[dict]:
             "strength": float(ev.get("strength") or 0.0),
             "confidence": float(ev.get("confidence") or 0.0),
             "supports": bool(ev.get("hypothesis")),
+            "corroboration": ci["tier"],
+            "corroborationSources": ci["sources"],
         })
     return out
 
