@@ -53,6 +53,27 @@ def test_headline_with_verb_is_rejected():
     )
 
 
+def test_content_free_boilerplate_names_rejected():
+    # NER artefacts made entirely of generic/boilerplate words carry no
+    # proper-noun content and must be rejected (the "ALL OTHER UNIQUE
+    # IDENTIFIERS" merge-sink bug).
+    assert not _is_valid_canonical("ALL OTHER UNIQUE IDENTIFIERS")
+    assert not _is_valid_canonical("Other Parties")
+    assert not _is_valid_canonical("various entities")
+    assert not _is_valid_canonical("such information")
+    assert not _is_valid_canonical("the company")
+
+
+def test_names_with_a_proper_noun_still_valid():
+    # One non-generic token is enough to keep a real name.
+    assert _is_valid_canonical("LIKUD PARTY")
+    assert _is_valid_canonical("DEMOCRATIC PARTY")
+    assert _is_valid_canonical("TOGA NETWORKS")
+    assert _is_valid_canonical("United Nations")
+    assert _is_valid_canonical("CASE 4000")
+    assert _is_valid_canonical("HUAWEI")
+
+
 def test_too_long_is_rejected_even_without_verb():
     # Over the word cap even without any explicit verb
     assert not _is_valid_canonical(

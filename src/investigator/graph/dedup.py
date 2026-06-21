@@ -797,6 +797,29 @@ _HEADLINE_VERBS = frozenset({
 # typical news headlines fail.
 _CANONICAL_MAX_WORDS = 7
 
+# Content-free / boilerplate words. A name made up ENTIRELY of these carries no
+# proper-noun content and is not a real entity -- e.g. the NER artefact
+# "ALL OTHER UNIQUE IDENTIFIERS" (from KYC/legal text), which otherwise passes
+# the verb + word-count checks and, worse, gets picked by MRI as a cluster's
+# representative name and becomes a merge sink. A real name always carries at
+# least one non-generic token, so the all-generic test is safe.
+_GENERIC_NAME_TERMS = frozenset({
+    # determiners / quantifiers
+    "ALL", "OTHER", "OTHERS", "ANY", "EACH", "EVERY", "SOME", "SUCH", "CERTAIN",
+    "VARIOUS", "SEVERAL", "MANY", "FEW", "BOTH", "THESE", "THOSE", "THIS",
+    "THAT", "THE", "A", "AN", "NO", "NONE", "SAME", "MORE", "MOST",
+    # connectors
+    "AND", "OR", "OF", "ETC",
+    # generic content nouns
+    "UNIQUE", "IDENTIFIER", "IDENTIFIERS", "INFORMATION", "DETAIL", "DETAILS",
+    "DATA", "NAME", "NAMES", "NUMBER", "NUMBERS", "RECORD", "RECORDS", "ITEM",
+    "ITEMS", "THING", "THINGS", "ENTITY", "ENTITIES", "PERSON", "PERSONS",
+    "PEOPLE", "PARTY", "PARTIES", "INDIVIDUAL", "INDIVIDUALS", "COMPANY",
+    "COMPANIES", "ORGANIZATION", "ORGANIZATIONS", "ORGANISATION",
+    "ORGANISATIONS", "ENTRY", "ENTRIES", "FIELD", "FIELDS", "VALUE", "VALUES",
+    "TYPE", "TYPES", "ACCOUNT", "ACCOUNTS", "REFERENCE", "REFERENCES",
+})
+
 
 def _is_valid_canonical(name) -> bool:
     """True iff `name` reads as a noun-phrase entity identifier rather
@@ -818,6 +841,10 @@ def _is_valid_canonical(name) -> bool:
         return False
     upper_tokens = set(re.findall(r"[A-Z]+", s.upper()))
     if upper_tokens & _HEADLINE_VERBS:
+        return False
+    # Content-free: every alphabetic token is a generic/boilerplate word, so the
+    # name carries no proper-noun content (e.g. "ALL OTHER UNIQUE IDENTIFIERS").
+    if upper_tokens and upper_tokens <= _GENERIC_NAME_TERMS:
         return False
     return True
 
