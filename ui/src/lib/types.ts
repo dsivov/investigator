@@ -92,6 +92,37 @@ export interface GraphPayload {
   edges: GraphEdge[];
 }
 
+export interface EnrichmentItem {
+  id: string;
+  enrichment: {
+    edgar?: {
+      matched_name?: string;
+      ticker?: string;
+      cik?: number;
+      sic_description?: string;
+      recent_filings?: Array<{ form: string; date: string }>;
+      _provenance?: { url?: string };
+    };
+    openregistry?: {
+      matched_name?: string;
+      company_id?: string;
+      jurisdiction?: string;
+      status?: string;
+      beneficial_owners?: unknown;
+      _provenance?: { url?: string };
+    };
+  };
+}
+
+export interface EnrichmentPayload {
+  items?: EnrichmentItem[];
+  total?: number;
+  running: boolean;
+  hasEnriched: boolean;
+  recordCount: number;
+  message?: string;
+}
+
 export interface OpenRegistryStatus {
   provider: string;
   url: string;

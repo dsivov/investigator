@@ -315,13 +315,33 @@ def _file_to_id(path: Path) -> str:
 
 
 def _list_artifacts() -> dict[str, Path]:
-    """Return id -> json-artifact-path map for every saved investigation."""
-    out: dict[str, Path] = {}
+    """Return id -> json-artifact-path map for every saved investigation.
+
+    A ``<base>.enriched.json`` (post-run enrichment output) is folded into the
+    same investigation as its ``<base>.json`` — the id stays the base id, and the
+    enriched file is preferred for content so all views reflect the enrichment.
+    """
     if not ARTIFACTS_DIR.exists():
-        return out
+        return {}
+    bases: dict[str, dict[str, Path]] = {}
     for p in sorted(ARTIFACTS_DIR.glob("cross_*.json")):
-        out[_file_to_id(p)] = p
+        if p.name.endswith(".enriched.json"):
+            bases.setdefault(p.name[: -len(".enriched.json")], {})["enriched"] = p
+        else:
+            bases.setdefault(p.name[: -len(".json")], {})["base"] = p
+    out: dict[str, Path] = {}
+    for d in bases.values():
+        id_ref = d.get("base") or d["enriched"]      # stable id from the base name
+        out[_file_to_id(id_ref)] = d.get("enriched") or d["base"]   # enriched content wins
     return out
+
+
+def _base_artifact(path: Path) -> Path:
+    """The non-enriched artifact for a resolved path (enrichment reads/overwrites it)."""
+    if path.name.endswith(".enriched.json"):
+        base = path.with_name(path.name[: -len(".enriched.json")] + ".json")
+        return base if base.exists() else path
+    return path
 
 
 def _meta_from_artifact(inv_id: str, path: Path, *, deep: bool = False) -> dict:
@@ -408,7 +428,7 @@ def _meta_from_artifact(inv_id: str, path: Path, *, deep: bool = False) -> dict:
 
 def _title_for(path: Path) -> str:
     """Pretty title derived from the artifact filename."""
-    name = path.stem.removeprefix("cross_")
+    name = path.stem.removeprefix("cross_").removesuffix(".enriched")
     # Strip the trailing YYYYMMDD_HHMMSS timestamp
     name = re.sub(r"_\d{8}_\d{6}$", "", name)
     parts = name.split("_")
@@ -1089,6 +1109,81 @@ def connect_entities(inv_id):
         mode=mode, max_hops=max_hops, k=k,
     )
     return jsonify(result)
+
+
+_ENRICH_PROCS: dict[str, subprocess.Popen] = {}
+
+
+def _enrichment_records(path: Path) -> list[dict]:
+    """Entities carrying external records, from the (enriched) artifact."""
+    try:
+        d = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        return []
+    nodes = (d.get("final_merged_graph") or {}).get("nodes") or []
+    return [
+        {"id": n.get("identifier"), "enrichment": n.get("enrichment")}
+        for n in nodes
+        if isinstance(n, dict) and n.get("enrichment")
+    ]
+
+
+def _enrich_status(inv_id: str, path: Path) -> dict:
+    proc = _ENRICH_PROCS.get(inv_id)
+    running = proc is not None and proc.poll() is None
+    enriched = path.name.endswith(".enriched.json") and path.exists()
+    return {
+        "running": running,
+        "hasEnriched": enriched,
+        "recordCount": len(_enrichment_records(path)) if enriched else 0,
+    }
+
+
+@app.route("/api/investigations/<inv_id>/enrich", methods=["GET"])
+def enrich_status(inv_id):
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    return jsonify(_enrich_status(inv_id, path))
+
+
+@app.route("/api/investigations/<inv_id>/enrich", methods=["POST"])
+def enrich_start(inv_id):
+    """Run external-records enrichment (SEC EDGAR + OpenRegistry) on the top-N
+    company entities, writing <artifact>.enriched.json which then drives the
+    views/report for this investigation."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    proc = _ENRICH_PROCS.get(inv_id)
+    if proc is not None and proc.poll() is None:
+        return jsonify({**_enrich_status(inv_id, path), "message": "Enrichment already running."})
+    try:
+        top_n = max(1, min(50, int((request.get_json(silent=True) or {}).get("topN") or 12)))
+    except (TypeError, ValueError):
+        top_n = 12
+    base = _base_artifact(path)
+    cmd = [sys.executable, "-u", str(REPO / "research" / "enrichment.py"),
+           str(base), "--top-n", str(top_n)]
+    env = {**os.environ, "PYTHONPATH": f"{REPO}{os.pathsep}{REPO / 'src'}", "PYTHONUNBUFFERED": "1"}
+    log = (ARTIFACTS_DIR.parent / "jobs" / f"{inv_id}.enrich.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    _ENRICH_PROCS[inv_id] = subprocess.Popen(
+        cmd, cwd=str(REPO), env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
+    _PAYLOAD_CACHE.clear()   # so views pick up the enriched artifact when done
+    return jsonify({**_enrich_status(inv_id, path),
+                    "running": True,
+                    "message": f"Enriching top {top_n} company entities (SEC EDGAR + OpenRegistry)…"})
+
+
+@app.route("/api/investigations/<inv_id>/enrichment", methods=["GET"])
+def get_enrichment(inv_id):
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    records = _enrichment_records(path)
+    return jsonify({"items": records, "total": len(records),
+                    **_enrich_status(inv_id, path)})
 
 
 @app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])

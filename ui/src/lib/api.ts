@@ -13,6 +13,7 @@ import type {
   SourcesPayload,
   ConnectorResult,
   OpenRegistryStatus,
+  EnrichmentPayload,
 } from "./types";
 
 async function post<T>(path: string): Promise<T> {
@@ -55,6 +56,22 @@ export const api = {
     get<TmfgPayload>(`/api/investigations/${id}/tmfg`),
   getSources: (id: string) =>
     get<SourcesPayload>(`/api/investigations/${id}/sources`),
+
+  // External-records enrichment (SEC EDGAR + OpenRegistry) on company entities.
+  getEnrichment: (id: string) =>
+    get<EnrichmentPayload>(`/api/investigations/${id}/enrichment`),
+  enrichInvestigation: async (id: string, topN = 12): Promise<EnrichmentPayload> => {
+    const r = await fetch(`/api/investigations/${id}/enrich`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topN }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
 
   // Connector subgraph between selected entities/events (shortest-path union).
   connect: async (
