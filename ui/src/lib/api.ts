@@ -124,15 +124,16 @@ export const api = {
 
   // Cumulative cross-investigation knowledge base (LightRAG).
   kbStats: () => get<KbStats>("/api/kb/stats"),
+  // mode omitted -> backend picks per-endpoint defaults (entities=hybrid, answer=global).
   kbQuery: async (
     query: string,
-    mode: "local" | "global" | "hybrid" | "mix" = "hybrid",
-    synthesize = true
+    synthesize = true,
+    mode?: "local" | "global" | "hybrid" | "mix"
   ): Promise<KbResult> => {
     const r = await fetch("/api/kb/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, mode, synthesize }),
+      body: JSON.stringify(mode ? { query, mode, synthesize } : { query, synthesize }),
     });
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));

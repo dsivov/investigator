@@ -15,7 +15,8 @@ export interface KbStats {
 
 export interface KbResult {
   query: string;
-  mode: string;
+  dataMode: string;
+  answerMode: string;
   answer: string | null;
   entities: Array<{ name: string; type: string; description: string }>;
   relationships: Array<{ src: string; dst: string; description: string }>;

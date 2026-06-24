@@ -800,10 +800,22 @@ def kb_stats():
     return jsonify({"available": True, "store": str(_kg_store_dir()), **st})
 
 
+# Per-endpoint retrieval mode (kg_mode_analysis.py, 775-entity store):
+#   * structured DATA -> hybrid: broadest faithful set; by construction contains
+#     local+global. mix is churn (Jaccard 0.69 vs hybrid) + slowest; naive empty.
+#   * synthesized ANSWER -> global: ~2x better grounded (35% vs 15-20%) because it
+#     retrieves from the relationship index, so the prose is built around links.
+# Both hit the SAME store/index -- only the query mode differs, no separate index.
+_KB_DATA_MODE = "hybrid"
+_KB_ANSWER_MODE = "global"
+
+
 @app.route("/api/kb/query", methods=["POST"])
 def kb_query():
-    """Query the cumulative KG. Returns structured entities/relationships
-    (always) and, when synthesize=True, an LLM answer."""
+    """Query the cumulative KG. Returns structured entities/relationships from the
+    DATA endpoint (hybrid) always, and -- when synthesize=True -- an LLM answer
+    from the ANSWER endpoint (global). Modes are fixed per endpoint per the mode
+    analysis; pass an explicit ``mode`` to override both."""
     kb = _get_kb()
     if kb is None:
         return _err(503, "kb_unavailable",
@@ -812,14 +824,16 @@ def kb_query():
     text = (body.get("query") or "").strip()
     if not text:
         return _err(400, "bad_request", "Provide a 'query'.")
-    mode = body.get("mode") or "hybrid"
-    if mode not in ("local", "global", "hybrid", "mix"):
-        return _err(400, "bad_request", f"Unknown mode {mode!r}.")
+    override = body.get("mode")
+    if override is not None and override not in ("local", "global", "hybrid", "mix"):
+        return _err(400, "bad_request", f"Unknown mode {override!r}.")
+    data_mode = override or _KB_DATA_MODE
+    answer_mode = override or _KB_ANSWER_MODE
     synthesize = bool(body.get("synthesize", True))
 
     async def _run():
-        data = await kb.retrieve(text, mode=mode)
-        answer = await kb.query(text, mode=mode) if synthesize else None
+        data = await kb.retrieve(text, mode=data_mode)
+        answer = await kb.query(text, mode=answer_mode) if synthesize else None
         return data, answer
     try:
         data, answer = asyncio.run(_run())
@@ -834,8 +848,8 @@ def kb_query():
         {"src": r.get("src_id"), "dst": r.get("tgt_id"), "description": r.get("description")}
         for r in (d.get("relationships") or [])
     ]
-    return jsonify({"query": text, "mode": mode, "answer": answer,
-                    "entities": entities, "relationships": relationships})
+    return jsonify({"query": text, "dataMode": data_mode, "answerMode": answer_mode,
+                    "answer": answer, "entities": entities, "relationships": relationships})
 
 
 # ---------------------------------------------------------------------------

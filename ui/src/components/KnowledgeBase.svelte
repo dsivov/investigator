@@ -4,7 +4,6 @@
 
   let stats = $state<KbStats | null>(null);
   let query = $state("");
-  let mode = $state<"local" | "global" | "hybrid" | "mix">("hybrid");
   let synthesize = $state(true);
   let result = $state<KbResult | null>(null);
   let answerHtml = $state("");
@@ -21,7 +20,7 @@
     answerHtml = "";
     try {
       const [res, { marked }] = await Promise.all([
-        api.kbQuery(query.trim(), mode, synthesize),
+        api.kbQuery(query.trim(), synthesize),
         import("marked"),
       ]);
       result = res;
@@ -65,15 +64,8 @@
           bind:value={query}
           onkeydown={(e) => e.key === "Enter" && run()}
         />
-        <select class="bg-slate-800 border border-slate-700 rounded px-2 py-2 text-slate-300 text-sm"
-          bind:value={mode}
-          title="local = entity-anchored · global = theme-anchored · hybrid = both (recommended)">
-          <option value="hybrid">hybrid</option>
-          <option value="local">local</option>
-          <option value="global">global</option>
-          <option value="mix">mix</option>
-        </select>
-        <label class="flex items-center gap-1 text-xs text-slate-400">
+        <label class="flex items-center gap-1 text-xs text-slate-400"
+          title="Synthesised answer uses the relationship-anchored (global) lens; entities/relationships use the broad (hybrid) lens.">
           <input type="checkbox" bind:checked={synthesize} /> synthesize answer
         </label>
         <button
