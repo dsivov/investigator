@@ -755,11 +755,10 @@ def health():
 # ---------------------------------------------------------------------------
 
 def _kg_store_dir() -> Path:
-    env = os.environ.get("INVESTIGATOR_KG_STORE")
-    if env:
-        return Path(env)
-    explore = REPO / "news_investigations" / "kg_explore_store"
-    return explore if (explore / "graph_chunk_entity_relation.graphml").exists() else (REPO / "rag_storage")
+    # Single shared store with the engine (see investigator.analytics.kg_store_dir):
+    # INVESTIGATOR_KG_STORE, else ~/.local/share/investigator/kg. Outside the repo.
+    from investigator.analytics import kg_store_dir
+    return kg_store_dir()
 
 
 _KB = None

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from flask import Flask
 
-from investigator.analytics import CumulativeKG
+from investigator.analytics import CumulativeKG, kg_store_dir
 from investigator.analytics.llm import make_openai_llm
 from investigator.api import create_api_blueprint, register_error_handlers
 from investigator.config import global_args
@@ -24,13 +24,14 @@ def create_app(*, debug_mode: bool = False) -> Flask:
     """Construct the Flask app.
 
     When ``--analytic_engine_enabled`` is set, a :class:`CumulativeKG` is built
-    over ``global_args.working_dir`` and accumulates every finished
+    over the shared :func:`kg_store_dir` (persistent, outside the code tree;
+    the same store the UI Knowledge Base queries) and accumulates every finished
     investigation's graph (in-process; no LightRAG server). Otherwise the
     pipeline runs without KG accumulation.
     """
     analytics_enabled = global_args.analytic_engine_enabled
     cumulative_kg = (
-        CumulativeKG(working_dir=global_args.working_dir, llm_model_func=make_openai_llm())
+        CumulativeKG(working_dir=kg_store_dir(), llm_model_func=make_openai_llm())
         if analytics_enabled
         else None
     )
