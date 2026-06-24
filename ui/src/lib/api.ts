@@ -14,6 +14,8 @@ import type {
   ConnectorResult,
   OpenRegistryStatus,
   EnrichmentPayload,
+  KbStats,
+  KbResult,
 } from "./types";
 
 async function post<T>(path: string): Promise<T> {
@@ -119,6 +121,25 @@ export const api = {
 
   listDomains: () =>
     get<{ items: Domain[]; total: number }>("/api/domains"),
+
+  // Cumulative cross-investigation knowledge base (LightRAG).
+  kbStats: () => get<KbStats>("/api/kb/stats"),
+  kbQuery: async (
+    query: string,
+    mode: "local" | "global" | "hybrid" | "mix" = "hybrid",
+    synthesize = true
+  ): Promise<KbResult> => {
+    const r = await fetch("/api/kb/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, mode, synthesize }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
 
   // Integrations: OpenRegistry company-registry login (one-time browser OAuth).
   getOpenRegistry: () =>

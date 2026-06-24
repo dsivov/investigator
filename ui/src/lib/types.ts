@@ -5,6 +5,22 @@
 
 export type Thread = { name: string; query: string };
 
+export interface KbStats {
+  available: boolean;
+  store: string;
+  entities: number;
+  edges: number;
+  canonicals: number;
+}
+
+export interface KbResult {
+  query: string;
+  mode: string;
+  answer: string | null;
+  entities: Array<{ name: string; type: string; description: string }>;
+  relationships: Array<{ src: string; dst: string; description: string }>;
+}
+
 export interface InvestigationSummary {
   fetched?: number;
   extracted_full_body?: number;

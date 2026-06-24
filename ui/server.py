@@ -18,6 +18,7 @@ Suitable for single-user local-network deployment per docs/UI_API.md.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -744,6 +745,97 @@ def _slugify_thread_name(s: str) -> str:
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "schema": SCHEMA_VERSION, "artifactsDir": str(ARTIFACTS_DIR)})
+
+
+# ---------------------------------------------------------------------------
+# Knowledge base: query the cumulative cross-investigation LightRAG KG.
+# One lazily-built CumulativeKG (its own background loop) reused across requests.
+# Store dir: env INVESTIGATOR_KG_STORE, else the populated explore store, else
+# the engine's default ./rag_storage.
+# ---------------------------------------------------------------------------
+
+def _kg_store_dir() -> Path:
+    env = os.environ.get("INVESTIGATOR_KG_STORE")
+    if env:
+        return Path(env)
+    explore = REPO / "news_investigations" / "kg_explore_store"
+    return explore if (explore / "graph_chunk_entity_relation.graphml").exists() else (REPO / "rag_storage")
+
+
+_KB = None
+
+
+def _get_kb():
+    """Cached CumulativeKG over the KG store, or None if the analytics stack is
+    unavailable / the store doesn't exist yet."""
+    global _KB
+    if _KB is not None:
+        return _KB if _KB is not False else None
+    store = _kg_store_dir()
+    if not (store / "graph_chunk_entity_relation.graphml").exists():
+        return None   # nothing accumulated yet; don't build an empty store
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=str(REPO / ".env"), override=False)
+        from investigator.analytics.cumulative_kg import CumulativeKG
+        from investigator.analytics.llm import make_openai_llm
+        _KB = CumulativeKG(working_dir=store, llm_model_func=make_openai_llm())
+        return _KB
+    except Exception as e:  # noqa: BLE001
+        print(f"[kb] knowledge base unavailable: {e}", file=sys.stderr)
+        _KB = False
+        return None
+
+
+@app.route("/api/kb/stats", methods=["GET"])
+def kb_stats():
+    kb = _get_kb()
+    if kb is None:
+        return jsonify({"available": False, "store": str(_kg_store_dir()),
+                        "entities": 0, "edges": 0, "canonicals": 0})
+    try:
+        st = asyncio.run(kb.stats())
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "kb_error", f"Knowledge base stats failed: {e}")
+    return jsonify({"available": True, "store": str(_kg_store_dir()), **st})
+
+
+@app.route("/api/kb/query", methods=["POST"])
+def kb_query():
+    """Query the cumulative KG. Returns structured entities/relationships
+    (always) and, when synthesize=True, an LLM answer."""
+    kb = _get_kb()
+    if kb is None:
+        return _err(503, "kb_unavailable",
+                    "No cumulative knowledge base yet. Run investigations with the analytic engine enabled.")
+    body = request.get_json(silent=True) or {}
+    text = (body.get("query") or "").strip()
+    if not text:
+        return _err(400, "bad_request", "Provide a 'query'.")
+    mode = body.get("mode") or "hybrid"
+    if mode not in ("local", "global", "hybrid", "mix"):
+        return _err(400, "bad_request", f"Unknown mode {mode!r}.")
+    synthesize = bool(body.get("synthesize", True))
+
+    async def _run():
+        data = await kb.retrieve(text, mode=mode)
+        answer = await kb.query(text, mode=mode) if synthesize else None
+        return data, answer
+    try:
+        data, answer = asyncio.run(_run())
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "kb_error", f"Knowledge base query failed: {type(e).__name__}: {e}")
+    d = (data or {}).get("data") or {}
+    entities = [
+        {"name": e.get("entity_name"), "type": e.get("entity_type"), "description": e.get("description")}
+        for e in (d.get("entities") or [])
+    ]
+    relationships = [
+        {"src": r.get("src_id"), "dst": r.get("tgt_id"), "description": r.get("description")}
+        for r in (d.get("relationships") or [])
+    ]
+    return jsonify({"query": text, "mode": mode, "answer": answer,
+                    "entities": entities, "relationships": relationships})
 
 
 # ---------------------------------------------------------------------------

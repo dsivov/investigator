@@ -58,6 +58,10 @@
         onclick={() => navigate("#/domains")}>Domains</button
       >
       <button
+        class="nav-link {route.name === 'knowledge' ? 'active' : ''}"
+        onclick={() => navigate("#/knowledge")}>Knowledge base</button
+      >
+      <button
         class="nav-link {route.name === 'settings' ? 'active' : ''}"
         onclick={() => navigate("#/settings")}>Settings</button
       >

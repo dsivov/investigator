@@ -4,6 +4,7 @@
   import InvestigationView from "./components/InvestigationView.svelte";
   import NewInvestigation from "./components/NewInvestigation.svelte";
   import Settings from "./components/Settings.svelte";
+  import KnowledgeBase from "./components/KnowledgeBase.svelte";
   import Placeholder from "./components/Placeholder.svelte";
   import { currentRoute } from "./lib/router.svelte";
 
@@ -24,6 +25,8 @@
     <NewInvestigation />
   {:else if route.name === "settings"}
     <Settings />
+  {:else if route.name === "knowledge"}
+    <KnowledgeBase />
   {:else}
     <Placeholder title="Not found" body="Unknown route." />
   {/if}
