@@ -42,9 +42,11 @@ confidence calculation propagate across it.
 1. **Fetch.** Search Google News for each query and download the most relevant
    articles. Bodies that fail to fetch (paywalls, blocks) are kept as
    **headline-only** records rather than dropped — a headline still carries
-   entity signal. You can also bring your **own sources** — upload PDFs or paste
-   URLs — analysed alongside the news fetch, or on their own (`--no-gnews`) to
-   run the same graph machinery over a single case file or document.
+   entity signal. Beyond news you can enable **additional search sources**
+   (Wikipedia, GDELT, OpenSanctions, generic web search — see below), and bring
+   your **own sources** — upload PDFs or paste URLs — analysed alongside the
+   fetch, or on their own (`--no-gnews`) to run the same graph machinery over a
+   single case file or document.
 2. **Extract.** An LLM reads each article and pulls out the **named actors**
    (people, organisations, places) and the **events** (concrete incidents:
    who did what to whom, when, where), plus any **source-claimed causation**.
@@ -137,6 +139,23 @@ the same Iran that operates the Houthis. Worth examining together."
 
 ---
 
+## Search sources you can enable
+
+Google News is the default, but each investigation can pull from additional
+sources, toggled per-source in the New-Investigation **Sources** step (and via
+repeatable `--source` on the CLI). They fetch text about the subject and flow
+through the identical extract → graph pipeline. A source that fails or isn't
+configured is skipped — it never breaks a run.
+
+| Source | Key needed | What it adds |
+|---|---|---|
+| **Wikipedia** | no | Encyclopedic article text about the subject (MediaWiki API). |
+| **GDELT** | no | Global news coverage, broader than Google News (free tier is rate-limited). |
+| **OpenSanctions** | yes (`INVESTIGATOR_OPENSANCTIONS_KEY`) | Sanctions / PEP / watchlist entries; shows as *needs key* until set. |
+| **Web search** | no* | Generic web results — Google Programmable Search if `INVESTIGATOR_GOOGLE_API_KEY`+`INVESTIGATOR_GOOGLE_CSE_ID` are set, else DuckDuckGo. |
+
+---
+
 ## Connecting the dots: hidden relationships between entities
 
 The whole graph can be dense. When you want to ask a focused question — *how are
@@ -188,18 +207,28 @@ levels:
 
 ## A cumulative knowledge graph across investigations (optional)
 
-With the analytics engine enabled, each finished investigation's graph can
-accumulate into **one persistent knowledge graph** (in-code LightRAG, no separate
-server), so later investigations can draw on what earlier ones found. Two pieces
-make this reliable:
+With the analytics engine enabled (`--analytic_engine_enabled`), each finished
+investigation's graph accumulates into **one persistent knowledge graph**
+(in-code LightRAG, no separate server) stored outside the code tree at
+`~/.local/share/investigator/kg` (override with `INVESTIGATOR_KG_STORE`). Later
+investigations can draw on what earlier ones found.
 
-- A conservative **cross-investigation canonicalization** layer keeps the same
+- **Cross-investigation canonicalization.** A conservative layer keeps the same
   real-world entity from fragmenting across runs — it auto-merges only safe name
   variants (exact + formatting) and routes fuzzy matches to a review log rather
   than risking a wrong, permanent merge.
-- When a new investigation starts, it is **pre-seeded** with what the cumulative
-  KG already knows about its subject (prior entities and relationships), surfaced
-  alongside the fresh findings.
+- **Nothing is lost.** LightRAG's graph keeps only a fixed schema, so a sidecar
+  **structured store** preserves every property we build — belief scores,
+  evidence (with confidence + source URLs), labels, themes, per-edge relation
+  type/context, hypothesis flags, and which investigations attested each item —
+  keyed by the same canonical names and merged across runs.
+- **Query it from the UI.** The **Knowledge Base** tab asks questions across
+  *everything* seen in all investigations: it returns the structured entities
+  and relationships (entity-anchored *hybrid* retrieval) plus an optional
+  LLM-synthesised answer, and each entity expands to show its belief score,
+  corroborating evidence, source links, and the investigations it appears in.
+- **Pre-seeding.** When a new investigation starts it is pre-seeded with what the
+  KG already knows about its subject, surfaced alongside the fresh findings.
 
 ---
 
@@ -239,7 +268,8 @@ Three processes:
   step, plus a Sources step for adding your own PDFs/URLs), live progress, the
   Graph / TMFG-themes / Data / Report / Sources tabs, on-demand **Connections**
   analysis (select entities → hidden-relationship subgraph + LLM summary),
-  per-actor/per-evidence **corroboration** badges, and a **Settings** page for
+  per-actor/per-evidence **corroboration** badges, a **Knowledge Base** tab
+  (query the cumulative cross-investigation KG), and a **Settings** page for
   connecting data providers.
 
 ---
@@ -282,7 +312,13 @@ PYTHONPATH=.:src python ui/server.py --port 5050
 ```
 
 It auto-discovers any past investigation artifacts under
-`news_investigations/cross_event/` and exposes them via the API.
+`news_investigations/cross_event/` and exposes them via the API. Add
+`--host 0.0.0.0` to reach it from another machine on the LAN (the Vite dev
+server already binds all interfaces).
+
+To accumulate finished investigations into the cumulative knowledge graph (so
+the **Knowledge Base** tab has data), start the **engine** with
+`--analytic_engine_enabled`.
 
 ### 4. Start the frontend (port 5180)
 
@@ -306,6 +342,9 @@ Open **http://localhost:5180**.
 | `INVESTIGATOR_CORRO_GAIN` / `INVESTIGATOR_CORRO_CAP` | Multi-source corroboration confidence boost (default gain 0.35, cap 8). |
 | `INVESTIGATOR_CLAIM_SIM` / `INVESTIGATOR_SYNDICATION_SIM` | Claim-clustering / syndication thresholds for the fact-checking badges (default 0.78 / 0.97). |
 | `INVESTIGATOR_KG_LLM_MODEL` | OpenAI model for the cumulative-KG layer (default `gpt-4.1-mini`). |
+| `INVESTIGATOR_KG_STORE` | Cumulative-KG store directory (default `~/.local/share/investigator/kg`). |
+| `INVESTIGATOR_OPENSANCTIONS_KEY` | API key enabling the OpenSanctions search source. |
+| `INVESTIGATOR_GOOGLE_API_KEY` / `INVESTIGATOR_GOOGLE_CSE_ID` | Google Programmable Search for the web-search source (else DuckDuckGo). |
 
 ---
 
@@ -318,6 +357,9 @@ PYTHONPATH=.:src python research/cross_event_investigation.py \
   --event "china_yuan:China yuan settlement Russia trade sanctions 2026" \
   --event "iran_drone:Iran Russia military cooperation drone supply 2026"
 ```
+
+Add extra search sources with repeatable `--source` (e.g.
+`--source wikipedia --source gdelt --source websearch`).
 
 Then turn the artifact into a customer report:
 
@@ -379,7 +421,9 @@ Two free providers:
   a paste-the-callback-URL fallback).
 
 Disable a provider with `--no-edgar` / `--no-openregistry`. Note: enrichment
-sends extracted entity *names* to these external services.
+sends extracted entity *names* to these external services. You can also run
+enrichment **from the app** — the **Sources** tab has an *Enrich* button that
+runs the same lookup and lists each entity's external records.
 
 ---
 
@@ -390,10 +434,12 @@ src/investigator/            Pipeline engine: NER, graph build, dedup/merge,
                          corroboration filter, TMFG, junction-tree BP.
   graph/connector.py         Connections subgraph (shortest-path / hidden / brokers)
   graph/corroboration.py     Claim-level multi-source corroboration (fact-check badges)
-  analytics/                 Cumulative KG: in-code LightRAG merge + cross-
-                             investigation canonicalization + retrieval
+  analytics/                 Cumulative KG: in-code LightRAG merge, cross-
+                             investigation canonicalization, structured_store
+                             (preserves all node/edge props), retrieval
 research/
   cross_event_investigation.py   CLI driver for a multi-query run
+  search_sources.py              Wikipedia / GDELT / OpenSanctions / web providers
   enhanced_retrieval.py          Query-expansion + rerank + entity-deepening
   build_customer_report.py       Analyst-grade markdown report generator
   build_graph_prototype.py       Cytoscape graph-payload + standalone prototype
