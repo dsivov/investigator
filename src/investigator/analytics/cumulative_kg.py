@@ -73,14 +73,56 @@ def _coerce_type(t) -> str:
     return str(t) if t else "UNKNOWN"
 
 
+def _clean(v) -> str:
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else ""
+    s = str(v or "").strip()
+    return "" if s.lower() in _EMPTY else s
+
+
 def _entity_description(node: dict) -> str:
+    """Substantive description text stored in the KG for this entity, so the
+    knowledge base can actually answer "who/what is X". Pulls the role/position,
+    location, notable aliases, and the entity's own evidence sentences (the
+    claims made about it) -- not just the name + type, which left nodes empty."""
     d = node.get("data") or {}
-    parts = []
-    for key, label in (("position", ""), ("location", "Location: ")):
-        v = d.get(key)
-        if isinstance(v, str) and v.strip() and v.strip().lower() not in _EMPTY:
-            parts.append(f"{label}{v.strip()}")
-    return " | ".join(parts) or f"{node['identifier']} ({d.get('type', 'ENTITY')})"
+    ident = node["identifier"]
+    etype = _coerce_type(d.get("type"))
+    parts = [f"{ident} is a {etype}." if etype and etype != "UNKNOWN" else ident]
+    role = _clean(d.get("position"))
+    if role:
+        parts.append(f"Role/position: {role}.")
+    loc = _clean(d.get("location"))
+    if loc:
+        parts.append(f"Location: {loc}.")
+    # Notable aliases / labels (skip ones equal to the identifier).
+    labels = node.get("most_significant_labels") or node.get("labels") or []
+    aliases = []
+    for lab in labels:
+        lab = _clean(lab)
+        if lab and lab.upper() != ident.upper() and lab not in aliases:
+            aliases.append(lab)
+    if aliases:
+        parts.append("Also referred to as: " + ", ".join(aliases[:5]) + ".")
+    # The entity's own evidence -- the actual claims about it (the substance).
+    seen = set()
+    claims = []
+    for ev in (node.get("evidence") or []):
+        if not isinstance(ev, dict):
+            continue
+        txt = _clean(ev.get("reasoning"))
+        # strip the consolidator routing prefix if present
+        if txt.startswith("Evidence through affiliations"):
+            nl = txt.find("\n")
+            txt = txt[nl + 1:].strip() if nl != -1 else ""
+        if txt and txt not in seen:
+            seen.add(txt)
+            claims.append(txt[:300])
+        if len(claims) >= 5:
+            break
+    if claims:
+        parts.append("Reported: " + " ".join(claims))
+    return " ".join(parts)
 
 
 def _edge_relation(edge: dict) -> tuple[str, str]:

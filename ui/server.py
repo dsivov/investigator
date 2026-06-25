@@ -807,14 +807,13 @@ def kb_stats():
     return jsonify({"available": True, "store": str(_kg_store_dir()), **st})
 
 
-# Per-endpoint retrieval mode (kg_mode_analysis.py, 775-entity store):
-#   * structured DATA -> hybrid: broadest faithful set; by construction contains
-#     local+global. mix is churn (Jaccard 0.69 vs hybrid) + slowest; naive empty.
-#   * synthesized ANSWER -> global: ~2x better grounded (35% vs 15-20%) because it
-#     retrieves from the relationship index, so the prose is built around links.
-# Both hit the SAME store/index -- only the query mode differs, no separate index.
+# Retrieval mode for the KB. global was tried for the answer (better grounded on
+# thematic queries) but it MISSES entity-lookup queries ("who is X?") -- it
+# retrieves by theme against the relationship index and never fetches the
+# entity's own node. hybrid finds the entity (local lens) AND themes (global),
+# so it answers both shapes; use it for data and answer alike.
 _KB_DATA_MODE = "hybrid"
-_KB_ANSWER_MODE = "global"
+_KB_ANSWER_MODE = "hybrid"
 
 
 @app.route("/api/kb/query", methods=["POST"])

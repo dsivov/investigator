@@ -24,7 +24,8 @@ Add a provider by writing a fetch fn and registering it in SEARCH_SOURCES.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+import re
+import time
 
 import requests
 
@@ -80,13 +81,36 @@ def fetch_wikipedia(query: str, max_items: int) -> list[dict]:
 # --- GDELT 2.0 DOC API (global news; no key) -------------------------------
 
 _GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
+# GDELT ANDs every term, so a long natural-language query ("... links to terror
+# financing activities") matches ~nothing. Trim to the distinctive tokens.
+_GDELT_STOP = {
+    "a", "an", "the", "of", "to", "and", "or", "in", "on", "for", "with", "by",
+    "links", "link", "linked", "related", "activities", "activity", "involving",
+    "involved", "suspected", "alleged", "between", "about", "into", "via",
+}
+
+
+def _gdelt_query(query: str, max_terms: int = 6) -> str:
+    toks = [t for t in re.findall(r"[A-Za-z0-9]+", query) if t.lower() not in _GDELT_STOP]
+    return " ".join(toks[:max_terms]) or query
+
+
+def _gdelt_get(q: str, max_items: int):
+    """GET with one 429 backoff retry (GDELT limit: 1 request / 5s)."""
+    for attempt in range(2):
+        r = requests.get(_GDELT, headers=_UA, timeout=_TIMEOUT, params={
+            "query": q, "mode": "artlist", "maxrecords": max_items,
+            "format": "json", "sort": "hybridrel"})
+        if r.status_code == 429 and attempt == 0:
+            time.sleep(6)
+            continue
+        return r
+    return r
 
 
 def fetch_gdelt(query: str, max_items: int) -> list[dict]:
     try:
-        r = requests.get(_GDELT, headers=_UA, timeout=_TIMEOUT, params={
-            "query": query, "mode": "artlist", "maxrecords": max_items,
-            "format": "json", "sort": "hybridrel"})
+        r = _gdelt_get(_gdelt_query(query), max_items)
         arts = r.json().get("articles", []) if r.headers.get(
             "content-type", "").startswith("application/json") else []
     except Exception as e:  # noqa: BLE001
