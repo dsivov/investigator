@@ -13,12 +13,34 @@ export interface KbStats {
   canonicals: number;
 }
 
+export interface KbStructured {
+  prob?: number | null;
+  score?: number | null;
+  posterior_prob?: number | null;
+  types?: string[];
+  labels?: string[];
+  runs?: string[];
+  themes?: string[];
+  investigations?: string[];
+  sources?: string[];
+  evidenceCount?: number;
+  evidence?: Array<{ reasoning: string; confidence: number | null; supports: boolean; source: string }>;
+  data?: Record<string, string>;
+}
+
+export interface KbEntity {
+  name: string;
+  type: string;
+  description: string;
+  structured?: KbStructured;
+}
+
 export interface KbResult {
   query: string;
   dataMode: string;
   answerMode: string;
   answer: string | null;
-  entities: Array<{ name: string; type: string; description: string }>;
+  entities: KbEntity[];
   relationships: Array<{ src: string; dst: string; description: string }>;
 }
 

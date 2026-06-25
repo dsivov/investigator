@@ -9,6 +9,23 @@
   let answerHtml = $state("");
   let loading = $state(false);
   let err = $state("");
+  let expanded = $state<Set<string>>(new Set());
+
+  function toggle(name: string) {
+    const s = new Set(expanded);
+    s.has(name) ? s.delete(name) : s.add(name);
+    expanded = s;
+  }
+  function publisherOf(url: string): string {
+    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+  }
+  // Confidence chip colour from prob (distance-to-subject belief).
+  function probClass(p: number | null | undefined): string {
+    if (p == null) return "bg-slate-800 text-slate-500 border-slate-700";
+    if (p >= 0.66) return "bg-emerald-900/40 text-emerald-300 border-emerald-700/50";
+    if (p >= 0.4) return "bg-amber-900/40 text-amber-300 border-amber-700/50";
+    return "bg-slate-800 text-slate-400 border-slate-700";
+  }
 
   api.kbStats().then((s) => (stats = s)).catch(() => {});
 
@@ -89,11 +106,65 @@
             <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">
               Entities ({result.entities.length})
             </div>
-            <ul class="space-y-1.5 text-sm">
+            <ul class="space-y-1 text-sm">
               {#each result.entities.slice(0, 40) as e}
-                <li>
-                  <span class="text-slate-200 font-medium">{e.name}</span>
-                  {#if e.type}<span class="text-slate-600 text-xs mono ml-1">{e.type}</span>{/if}
+                {@const s = e.structured}
+                <li class="border-b border-slate-800/40 last:border-0">
+                  <button class="w-full flex items-center gap-2 py-1.5 text-left hover:bg-slate-800/30 rounded px-1"
+                          onclick={() => toggle(e.name)}>
+                    <span class="text-slate-500 text-xs w-3">{expanded.has(e.name) ? "▾" : "▸"}</span>
+                    <span class="text-slate-200 font-medium">{e.name}</span>
+                    {#if e.type}<span class="text-slate-600 text-xs mono">{e.type}</span>{/if}
+                    <span class="ml-auto flex items-center gap-1.5">
+                      {#if s && s.prob != null}
+                        <span class="rounded border px-1.5 text-[11px] {probClass(s.prob)}" title="belief score (prob)">{s.prob.toFixed(2)}</span>
+                      {/if}
+                      {#if s && s.evidenceCount}
+                        <span class="text-[11px] text-slate-500" title="evidence items">{s.evidenceCount} ev</span>
+                      {/if}
+                      {#if s && s.runs && s.runs.length > 1}
+                        <span class="text-[11px] text-sky-400" title="appears in {s.runs.length} investigations">×{s.runs.length}</span>
+                      {/if}
+                    </span>
+                  </button>
+                  {#if expanded.has(e.name) && s}
+                    <div class="pl-6 pb-3 pt-1 text-xs space-y-1.5 text-slate-400">
+                      <div class="flex flex-wrap gap-x-4 gap-y-1">
+                        {#if s.score != null}<span>score <span class="mono text-slate-300">{s.score.toFixed(2)}</span></span>{/if}
+                        {#if s.posterior_prob != null}<span>posterior <span class="mono text-slate-300">{s.posterior_prob.toFixed(2)}</span></span>{/if}
+                        {#if s.data?.position}<span>role: <span class="text-slate-300">{s.data.position}</span></span>{/if}
+                        {#if s.data?.location}<span>loc: <span class="text-slate-300">{s.data.location}</span></span>{/if}
+                      </div>
+                      {#if s.labels && s.labels.length}
+                        <div>aliases: <span class="text-slate-300">{s.labels.slice(0, 6).join(", ")}</span></div>
+                      {/if}
+                      {#if s.runs && s.runs.length}
+                        <div>investigations: <span class="text-sky-300">{s.runs.join(", ")}</span></div>
+                      {/if}
+                      {#if s.evidence && s.evidence.length}
+                        <div class="space-y-1">
+                          <div class="text-slate-500">Evidence:</div>
+                          {#each s.evidence as ev}
+                            <div class="border-l-2 border-slate-700 pl-2">
+                              <span class="{ev.supports ? 'text-emerald-400' : 'text-red-400'}">{ev.supports ? '✓' : '✕'}</span>
+                              <span class="text-slate-300">{ev.reasoning}</span>
+                              {#if ev.source?.startsWith?.("http")}
+                                <a class="text-emerald-400 hover:underline ml-1" href={ev.source} target="_blank" rel="noopener">[{publisherOf(ev.source)}]</a>
+                              {/if}
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if s.sources && s.sources.length}
+                        <div class="flex flex-wrap gap-x-2">
+                          <span class="text-slate-500">sources:</span>
+                          {#each s.sources.slice(0, 8) as u}
+                            {#if u.startsWith("http")}<a class="text-emerald-400 hover:underline" href={u} target="_blank" rel="noopener">{publisherOf(u)}</a>{/if}
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
                 </li>
               {/each}
             </ul>
