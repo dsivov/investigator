@@ -43,6 +43,7 @@ from lightrag.operate import merge_nodes_and_edges
 from lightrag.utils import EmbeddingFunc
 
 from investigator.analytics.canonicalizer import CanonicalRegistry, resolve_graph_entities
+from investigator.analytics.structured_store import StructuredStore
 from investigator.graph.dedup import _wl
 from investigator.logging import get_logger
 
@@ -171,6 +172,7 @@ class CumulativeKG:
             Path(registry_path) if registry_path else self.working_dir / "canonical_registry.json"
         )
         self.registry = CanonicalRegistry(self.registry_path, review_path=review_path)
+        self.structured = StructuredStore(self.working_dir / "structured_store.json")
         self._llm = llm_model_func or _concat_llm
         self._embed = embedding_func or _default_embedding_func()
         self._rag: LightRAG | None = None
@@ -311,12 +313,20 @@ class CumulativeKG:
         """Entity/edge counts in the cumulative graph + registry canonical count."""
         return await asyncio.wrap_future(self._submit(self._stats()))
 
+    def structured_entity(self, name: str):
+        """Full structured record (all preserved props) for a canonical entity,
+        or None. Synchronous -- the sidecar store is plain in-memory data."""
+        return self.structured.get_entity(name)
+
     # --- coroutines that run ON the background loop -----------------------
 
     async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None) -> dict:
         await self._initialize()
         file_path = file_path or source_id
         mapping = resolve_graph_entities(final_graph, self.registry, source_id)
+        # Preserve ALL structured node/edge properties (lost by LightRAG's fixed
+        # schema) in the sidecar store, keyed by the SAME canonical names.
+        self._merge_structured(final_graph, source_id, mapping)
         chunk_results = self._graph_to_chunk_results(final_graph, source_id, file_path, mapping)
         n_nodes = len(chunk_results[0][0])
         n_edges = len(chunk_results[0][1])
@@ -368,8 +378,29 @@ class CumulativeKG:
             "canonicals": len(self.registry.canonicals),
         }
 
+    def _merge_structured(self, final_graph: dict, source_id: str, mapping: dict) -> None:
+        """Feed every non-event node + relationship edge into the sidecar store,
+        canonicalised to match the KG's entity names."""
+        event_ids = {
+            n["identifier"] for n in final_graph["nodes"]
+            if (n.get("node_type") or n.get("type")) == "event"
+        }
+        for n in final_graph["nodes"]:
+            if n["identifier"] in event_ids:
+                continue
+            canon = mapping.get(n["identifier"], n["identifier"])
+            self.structured.merge_entity(canon, n, source_id)
+        for e in final_graph["edges"]:
+            src, dst = e.get("src_identifier"), e.get("dst_identifier")
+            if e.get("type") == "evidence" or src in event_ids or dst in event_ids:
+                continue
+            cs, cd = mapping.get(src, src), mapping.get(dst, dst)
+            if cs and cd and cs != cd:
+                self.structured.merge_edge(cs, cd, e, source_id)
+
     async def _persist(self) -> None:
         await self._rag.chunk_entity_relation_graph.index_done_callback()
         await self._rag.entities_vdb.index_done_callback()
         await self._rag.relationships_vdb.index_done_callback()
         self.registry.save()
+        self.structured.save()

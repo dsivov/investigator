@@ -846,10 +846,31 @@ def kb_query():
     except Exception as e:  # noqa: BLE001
         return _err(502, "kb_error", f"Knowledge base query failed: {type(e).__name__}: {e}")
     d = (data or {}).get("data") or {}
-    entities = [
-        {"name": e.get("entity_name"), "type": e.get("entity_type"), "description": e.get("description")}
-        for e in (d.get("entities") or [])
-    ]
+    entities = []
+    for e in (d.get("entities") or []):
+        name = e.get("entity_name")
+        ent = {"name": name, "type": e.get("entity_type"), "description": e.get("description")}
+        # Join the full structured record (beliefs, evidence, runs, sources, ...)
+        # that LightRAG's fixed schema drops -- preserved in the sidecar store.
+        rec = kb.structured_entity(name) if name else None
+        if rec:
+            ev = rec.get("evidence") or []
+            ent["structured"] = {
+                "prob": rec.get("prob"), "score": rec.get("score"),
+                "posterior_prob": rec.get("posterior_prob"),
+                "types": rec.get("types") or [], "labels": (rec.get("labels") or [])[:8],
+                "runs": rec.get("runs") or [], "themes": (rec.get("themes") or [])[:8],
+                "investigations": rec.get("investigations") or [],
+                "sources": (rec.get("sources") or [])[:10],
+                "evidenceCount": rec.get("evidence_count") or len(ev),
+                "evidence": [
+                    {"reasoning": x.get("reasoning"), "confidence": x.get("confidence"),
+                     "supports": x.get("supports"), "source": x.get("source")}
+                    for x in ev[:5]
+                ],
+                "data": rec.get("data") or {},
+            }
+        entities.append(ent)
     relationships = [
         {"src": r.get("src_id"), "dst": r.get("tgt_id"), "description": r.get("description")}
         for r in (d.get("relationships") or [])
