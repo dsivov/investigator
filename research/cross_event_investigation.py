@@ -123,7 +123,8 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
               relevance_threshold: float = 0.6,
               enhanced: bool = False, retrieval_depth: int = 1,
               retrieval_expansions: int = 4, domain_key: str = "general",
-              gnews: bool = True, extra_articles: list[dict] | None = None) -> dict:
+              gnews: bool = True, extra_articles: list[dict] | None = None,
+              search_sources: list[str] | None = None) -> dict:
     """Run a single event's 2-stage flow into the given session, with
     `run=event_name` passed through both POSTs (the user-facing event name
     becomes the server-side run-label).
@@ -149,6 +150,15 @@ def run_event(*, session_id: str, event_name: str, event_query: str,
     else:
         print("\n[S1] GNews disabled -- using manual sources only")
         s1_articles = []
+    # Additional search sources (Wikipedia / GDELT / OpenSanctions / web): fetched
+    # per event query, always-included like manual sources.
+    if search_sources:
+        from search_sources import fetch_sources
+        print(f"\n[S1] Additional sources: {', '.join(search_sources)}")
+        src_articles = fetch_sources(search_sources, event_query,
+                                     max_items=max(5, s1_articles_n // 4), verbose=True)
+        if src_articles:
+            s1_articles = list(src_articles) + s1_articles
     # Manual sources are user-chosen: always included, prepended ahead of the
     # GNews batch (they skip the title-rerank cutoff but still face the
     # per-evidence relevance gate downstream).
@@ -275,6 +285,10 @@ def main() -> int:
     p.add_argument("--no-gnews", dest="gnews", action="store_false",
                    help="Disable GNews retrieval entirely; analyse only the "
                         "--extra-url / --extra-pdf manual sources.")
+    p.add_argument("--source", action="append", default=[], metavar="NAME",
+                   dest="search_sources",
+                   help="Repeatable. Additional search source to query per event "
+                        "(wikipedia, gdelt, opensanctions, websearch).")
     args = p.parse_args()
 
     hypothesis, threshold, domain_label = resolve_domain(
@@ -301,9 +315,9 @@ def main() -> int:
               f"{len(args.extra_pdf)} PDF(s)")
         extra_articles = ingest_sources(args.extra_url, args.extra_pdf, verbose=True)
         print(f"[sources] {len(extra_articles)} usable manual source(s)")
-    if not args.gnews and not extra_articles:
-        print("--no-gnews requires at least one usable --extra-url / --extra-pdf "
-              "source", file=sys.stderr)
+    if not args.gnews and not extra_articles and not args.search_sources:
+        print("--no-gnews requires at least one --extra-url / --extra-pdf / "
+              "--source", file=sys.stderr)
         return 2
     # A single event is a valid "single-query" investigation: it produces a
     # normal merged graph with no cross-event analytics (no entity can be in
@@ -342,6 +356,7 @@ def main() -> int:
             # Manual sources attach to the first event only, so they aren't
             # double-counted across runs (which would make them phantom bridges).
             extra_articles=extra_articles if idx == 0 else None,
+            search_sources=args.search_sources,
         )
         e["article_batches"] = st.get("article_batches", [])
         artifacts["per_event_states"].append(st)

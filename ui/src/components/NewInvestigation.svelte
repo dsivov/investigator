@@ -33,6 +33,16 @@
 
   // Manual sources (PDF uploads + URLs) and the GNews toggle.
   let gnewsEnabled = $state(true);
+  // Additional configurable search sources (Wikipedia / GDELT / ...).
+  type SearchSource = { id: string; label: string; description: string; requiresKey: boolean; available: boolean };
+  let searchSources = $state<SearchSource[]>([]);
+  let enabledSources = $state<Set<string>>(new Set());
+  api.listSearchSources().then(({ items }) => (searchSources = items)).catch(() => {});
+  function toggleSource(id: string) {
+    const s = new Set(enabledSources);
+    s.has(id) ? s.delete(id) : s.add(id);
+    enabledSources = s;
+  }
   let urlsText = $state("");
   let uploadedPdfs = $state<{ id: string; name: string; bytes: number }[]>([]);
   let uploading = $state(false);
@@ -150,8 +160,9 @@
     const filled = threads.filter((t) => t.query.trim());
     const queryOk = kind === "single" ? filled.length === 1 : filled.length >= 2;
     if (!queryOk) return false;
-    // With GNews disabled, at least one manual source is required.
-    if (!gnewsEnabled && usableUrls().length === 0 && uploadedPdfs.length === 0) {
+    // With GNews disabled, at least one other source (search source / URL / PDF).
+    if (!gnewsEnabled && enabledSources.size === 0 &&
+        usableUrls().length === 0 && uploadedPdfs.length === 0) {
       return false;
     }
     return true;
@@ -213,6 +224,7 @@
         enhancedRetrieval, retrievalDepth, retrievalExpansions,
       },
       gnewsEnabled,
+      sources: [...enabledSources],
       extraSources: { urls: usableUrls(), pdfs: uploadedPdfs.map((p) => p.id) },
     };
     if (editingHypothesis && hypothesisOverride.trim()) {
@@ -475,9 +487,22 @@
         <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Sources</div>
         <label class="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
           <input type="checkbox" class="accent-emerald-500" bind:checked={gnewsEnabled} />
-          Search GNews
+          Google News
         </label>
-        <p class="text-[11px] text-slate-500 mt-1">
+        {#each searchSources as s}
+          <label class="flex items-center gap-2 text-sm cursor-pointer mt-1
+                        {s.available ? 'text-slate-200' : 'text-slate-500'}"
+                 title={s.available ? s.description : `${s.description} (needs configuration)`}>
+            <input type="checkbox" class="accent-emerald-500"
+              disabled={!s.available}
+              checked={enabledSources.has(s.id)}
+              onchange={() => toggleSource(s.id)} />
+            {s.label}
+            <span class="text-[11px] text-slate-500">— {s.description}</span>
+            {#if !s.available}<span class="text-[11px] text-amber-500/80">needs key</span>{/if}
+          </label>
+        {/each}
+        <p class="text-[11px] text-slate-500 mt-2">
           Add your own documents to analyse alongside (or instead of) news.
           Uploaded PDFs and URLs are always included — they skip the relevance
           cutoff but are still scored against the domain hypothesis. The query

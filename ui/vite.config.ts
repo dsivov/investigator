@@ -9,6 +9,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   server: {
+    // Bind all interfaces so the UI is reachable from other machines on the
+    // LAN (e.g. another lab workstation), not just localhost.
+    host: true,
     // Dedicated, locked port so a sibling Vite project (e.g. PCA Planner on
     // 5173) can't displace us. strictPort makes Vite fail loudly instead of
     // silently hopping to another port and breaking the /api proxy.

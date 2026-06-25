@@ -747,6 +747,14 @@ def health():
     return jsonify({"status": "ok", "schema": SCHEMA_VERSION, "artifactsDir": str(ARTIFACTS_DIR)})
 
 
+@app.route("/api/search-sources", methods=["GET"])
+def search_sources():
+    """Configurable search sources (beyond Google News) for the New
+    Investigation step. Key-gated sources report available=false until set up."""
+    from search_sources import available_sources
+    return jsonify({"items": available_sources()})
+
+
 # ---------------------------------------------------------------------------
 # Knowledge base: query the cumulative cross-investigation LightRAG KG.
 # One lazily-built CumulativeKG (its own background loop) reused across requests.
@@ -1553,6 +1561,11 @@ def create_investigation():
 
     # Manual sources (PDF uploads + URLs) and the GNews toggle.
     gnews_enabled = body.get("gnewsEnabled", True)
+    # Additional configurable search sources (wikipedia / gdelt / ...).
+    from search_sources import available_sources
+    _valid_sources = {s["id"] for s in available_sources()}
+    search_srcs = [s for s in (body.get("sources") or [])
+                   if isinstance(s, str) and s in _valid_sources]
     src_in = body.get("extraSources") or {}
     extra_urls = [u.strip() for u in (src_in.get("urls") or []) if isinstance(u, str) and u.strip()]
     extra_pdf_ids = [p for p in (src_in.get("pdfs") or []) if isinstance(p, str) and p]
@@ -1563,9 +1576,9 @@ def create_investigation():
             return _err(400, "validation_failed",
                         f"unknown or invalid upload id {pid!r}", field="extraSources.pdfs")
         extra_pdf_paths.append(str(resolved))
-    if not gnews_enabled and not extra_urls and not extra_pdf_paths:
+    if not gnews_enabled and not extra_urls and not extra_pdf_paths and not search_srcs:
         return _err(400, "validation_failed",
-                    "with GNews disabled you must supply at least one URL or PDF source",
+                    "with GNews disabled you must enable at least one search source or supply a URL/PDF",
                     field="extraSources")
 
     # Idempotency: a client retrying the same key within IDEMP_TTL_SECS gets
@@ -1587,7 +1600,7 @@ def create_investigation():
     inv_id = f"inv_{uuid.uuid4().hex[:10]}"
     spec = {"title": " · ".join(t["name"] for t in threads), "kind": kind,
             "threads": threads, "domain": domain_key, "period": period, "advanced": adv,
-            "gnewsEnabled": gnews_enabled,
+            "gnewsEnabled": gnews_enabled, "sources": search_srcs,
             "extraSources": {"urls": extra_urls, "pdfs": extra_pdf_ids}}
 
     # Build the subprocess command line that drives cross_event_investigation.py
@@ -1613,6 +1626,8 @@ def create_investigation():
         cmd += ["--extra-url", u]
     for pth in extra_pdf_paths:
         cmd += ["--extra-pdf", pth]
+    for s in search_srcs:
+        cmd += ["--source", s]
     if not gnews_enabled:
         cmd += ["--no-gnews"]
     spec["cmd"] = cmd

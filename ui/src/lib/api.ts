@@ -122,6 +122,11 @@ export const api = {
   listDomains: () =>
     get<{ items: Domain[]; total: number }>("/api/domains"),
 
+  // Configurable search sources (Wikipedia / GDELT / OpenSanctions / web).
+  listSearchSources: () =>
+    get<{ items: Array<{ id: string; label: string; description: string; requiresKey: boolean; available: boolean }> }>(
+      "/api/search-sources"),
+
   // Cumulative cross-investigation knowledge base (LightRAG).
   kbStats: () => get<KbStats>("/api/kb/stats"),
   // mode omitted -> backend picks per-endpoint defaults (entities=hybrid, answer=global).
