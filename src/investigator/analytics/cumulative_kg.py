@@ -112,6 +112,20 @@ def _entity_description(node: dict) -> str:
             aliases.append(lab)
     if aliases:
         parts.append("Also referred to as: " + ", ".join(aliases[:5]) + ".")
+    # Dated timeline (so temporal / "what happened" queries retrieve it, and the
+    # synthesised answer can cite dates -- this signal was previously embed-blind).
+    tl = []
+    for te in (d.get("timeline_events") or []):
+        if not isinstance(te, dict):
+            continue
+        ev = _clean(te.get("event"))
+        date = _clean(te.get("date"))
+        if ev:
+            tl.append(f"{date}: {ev}" if date else ev)
+        if len(tl) >= 6:
+            break
+    if tl:
+        parts.append("Timeline: " + "; ".join(tl) + ".")
     # The entity's own evidence -- the actual claims about it (the substance).
     seen = set()
     claims = []
@@ -273,13 +287,17 @@ class CumulativeKG:
             if not (s and t) or s == t:
                 continue
             rtype, ctx = _edge_relation(e)
+            role = _clean((e.get("attributes") or {}).get("role"))
+            # Embed the role too (the nature of the link), so relationship
+            # retrieval/synthesis sees it -- not just the bare relation type.
+            desc = " — ".join(p for p in (role, ctx or rtype) if p) or rtype
             maybe_edges.setdefault((s, t), []).append(
                 {
                     "src_id": s,
                     "tgt_id": t,
                     "weight": float(e.get("weight") or 1.0),
-                    "description": ctx or rtype,
-                    "keywords": rtype,
+                    "description": desc,
+                    "keywords": ", ".join(p for p in (rtype, role) if p) or rtype,
                     "source_id": source_id,
                     "file_path": file_path,
                     "timestamp": ts,

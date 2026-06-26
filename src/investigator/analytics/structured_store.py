@@ -203,6 +203,7 @@ class StructuredStore:
         actors that took part. Keyed by event identifier, merged across runs."""
         rec = self.events.setdefault(event_id, {
             "id": event_id, "dates": [], "participants": [], "type": "",
+            "description": "", "location": "", "sources": [],
             "runs": [], "investigations": [],
         })
         data = event_node.get("data") or {}
@@ -212,6 +213,14 @@ class StructuredStore:
         rec["dates"].sort()
         if not rec["type"]:
             rec["type"] = _clean(data.get("event_type"))
+        if not rec.get("description"):
+            rec["description"] = _clean(data.get("description"))[:500]
+        if not rec.get("location"):
+            rec["location"] = _clean(data.get("location"))
+        rec.setdefault("sources", [])
+        u = _clean(data.get("source_url"))
+        if u.startswith("http") and u not in rec["sources"]:
+            rec["sources"].append(u)
         self._union(rec["participants"], participants)
         self._union(rec["runs"], event_node.get("runs"))
         if source_id not in rec["investigations"]:
