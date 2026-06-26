@@ -4,8 +4,7 @@ Contains everything that used to live in the route handler of
 ``investigator_server.py``:
 
 * DSPy LLM configuration (one-time, at import).
-* Static embedding/similarity models loaded once (``semhash_model``,
-  ``word_llama``).
+* Static embedding/similarity model loaded once (``semhash_model``).
 * Async helpers for entity / evidence / edge extraction that fan out
   per-chunk and gather.
 * ``InvestigationPipeline`` — the class the Flask route delegates to.
@@ -33,7 +32,6 @@ import uuid
 import dspy
 import networkx as nx
 from model2vec import StaticModel
-from wordllama import WordLlama
 
 from investigator.graph import (
     attach_relations_to_nodes,
@@ -81,7 +79,6 @@ log = get_logger()
 # --- Heavy model singletons ----------------------------------------------
 
 semhash_model = StaticModel.from_pretrained("minishlab/potion-multilingual-128M")
-word_llama = WordLlama.load_m2v("m2v_multilingual")
 
 
 # --- DSPy LM configuration ------------------------------------------------
