@@ -26,6 +26,9 @@ export interface KbStructured {
   evidenceCount?: number;
   evidence?: Array<{ reasoning: string; confidence: number | null; supports: boolean; source: string }>;
   data?: Record<string, string>;
+  timeline?: Array<{ date: string; event: string; kind: string }>;
+  firstSeen?: string | null;
+  lastSeen?: string | null;
 }
 
 export interface KbEntity {

@@ -134,12 +134,32 @@
                         {#if s.posterior_prob != null}<span>posterior <span class="mono text-slate-300">{s.posterior_prob.toFixed(2)}</span></span>{/if}
                         {#if s.data?.position}<span>role: <span class="text-slate-300">{s.data.position}</span></span>{/if}
                         {#if s.data?.location}<span>loc: <span class="text-slate-300">{s.data.location}</span></span>{/if}
+                        {#if s.firstSeen}<span>active <span class="mono text-slate-300">{s.firstSeen} → {s.lastSeen}</span></span>{/if}
                       </div>
+                      {#if s.data?.email || s.data?.phone_number || s.data?.financial_restrictions || s.data?.address}
+                        <div class="flex flex-wrap gap-x-4 gap-y-1">
+                          {#if s.data?.email}<span>email: <span class="text-slate-300">{s.data.email}</span></span>{/if}
+                          {#if s.data?.phone_number}<span>phone: <span class="text-slate-300">{s.data.phone_number}</span></span>{/if}
+                          {#if s.data?.address}<span>addr: <span class="text-slate-300">{s.data.address}</span></span>{/if}
+                          {#if s.data?.financial_restrictions}<span class="text-amber-300">⚑ {s.data.financial_restrictions}</span>{/if}
+                        </div>
+                      {/if}
                       {#if s.labels && s.labels.length}
                         <div>aliases: <span class="text-slate-300">{s.labels.slice(0, 6).join(", ")}</span></div>
                       {/if}
                       {#if s.runs && s.runs.length}
                         <div>investigations: <span class="text-sky-300">{s.runs.join(", ")}</span></div>
+                      {/if}
+                      {#if s.timeline && s.timeline.length}
+                        <div class="space-y-0.5">
+                          <div class="text-slate-500">Timeline ({s.timeline.length}):</div>
+                          {#each s.timeline.slice(0, 8) as t}
+                            <div class="flex gap-2">
+                              <span class="mono text-sky-300/80 w-20 shrink-0">{t.date || "—"}</span>
+                              <span class="text-slate-300">{t.event}</span>
+                            </div>
+                          {/each}
+                        </div>
                       {/if}
                       {#if s.evidence && s.evidence.length}
                         <div class="space-y-1">

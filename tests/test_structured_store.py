@@ -93,6 +93,52 @@ def test_save_load_roundtrip():
     assert StructuredStore(p).get_entity("ALICE")["prob"] == 0.7
 
 
+def test_entity_timeline_events_captured():
+    ss = StructuredStore(tempfile.mktemp())
+    ss.merge_entity("ALICE", _node("ALICE", data={"type": "PERSON", "timeline_events": [
+        {"date": "2025-03-01", "event": "indicted"},
+        {"date": "", "event": "questioned"}]}), "inv::a")
+    tl = ss.entity_timeline("ALICE")
+    assert {t["event"] for t in tl} == {"indicted", "questioned"}
+    assert tl[0]["date"] == "2025-03-01"          # dated first
+    assert tl[-1]["date"] == ""                    # undated last
+
+
+def test_event_layer_and_participated_timeline():
+    ss = StructuredStore(tempfile.mktemp())
+    ss.merge_entity("ALICE", _node("ALICE"), "inv::a")
+    ss.merge_event("ALICE CHARGED WITH FRAUD",
+                   {"data": {"date": ["2025-05-10"], "event_type": "legal"}},
+                   ["ALICE", "ACME"], "inv::a")
+    assert "ALICE CHARGED WITH FRAUD" in ss.events
+    tl = ss.entity_timeline("ALICE")
+    assert any(t["kind"] == "event" and t["date"] == "2025-05-10" for t in tl)
+    assert ss.date_range("ALICE") == ("2025-05-10", "2025-05-10")
+
+
+def test_temporal_edges_and_event_merge():
+    ss = StructuredStore(tempfile.mktemp())
+    ss.merge_event("E1", {"data": {"date": "2025-01-01"}}, ["A"], "inv::a")
+    ss.merge_event("E1", {"data": {"date": ["2025-01-02"]}}, ["B"], "inv::b")  # merge
+    assert ss.events["E1"]["dates"] == ["2025-01-01", "2025-01-02"]
+    assert set(ss.events["E1"]["participants"]) == {"A", "B"}
+    ss.merge_temporal_edge("event_followed_by", "E1", "E2")
+    ss.merge_temporal_edge("event_followed_by", "E1", "E2")  # dedup
+    assert len(ss.temporal_edges) == 1
+
+
+def test_temporal_roundtrip():
+    p = Path(tempfile.mktemp())
+    ss = StructuredStore(p)
+    ss.merge_entity("ALICE", _node("ALICE", data={"type": "PERSON",
+                    "timeline_events": [{"date": "2025-03-01", "event": "x"}]}), "inv::a")
+    ss.merge_event("E1", {"data": {"date": "2025-03-02"}}, ["ALICE"], "inv::a")
+    ss.save()
+    ss2 = StructuredStore(p)
+    assert len(ss2.entity_timeline("ALICE")) == 2
+    assert "E1" in ss2.events
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0

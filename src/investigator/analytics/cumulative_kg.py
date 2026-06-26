@@ -96,6 +96,13 @@ def _entity_description(node: dict) -> str:
     loc = _clean(d.get("location"))
     if loc:
         parts.append(f"Location: {loc}.")
+    # High-signal identifiers (no chunks => fold into the description or lose them).
+    for key, label in (("address", "Address"), ("email", "Email"),
+                       ("phone_number", "Phone"),
+                       ("financial_restrictions", "Financial restrictions")):
+        v = _clean(d.get(key))
+        if v:
+            parts.append(f"{label}: {v}.")
     # Notable aliases / labels (skip ones equal to the identifier).
     labels = node.get("most_significant_labels") or node.get("labels") or []
     aliases = []
@@ -318,6 +325,10 @@ class CumulativeKG:
         or None. Synchronous -- the sidecar store is plain in-memory data."""
         return self.structured.get_entity(name)
 
+    def entity_timeline(self, name: str) -> list[dict]:
+        """An actor's merged chronology (timeline_events + participated events)."""
+        return self.structured.entity_timeline(name)
+
     # --- coroutines that run ON the background loop -----------------------
 
     async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None) -> dict:
@@ -380,19 +391,34 @@ class CumulativeKG:
 
     def _merge_structured(self, final_graph: dict, source_id: str, mapping: dict) -> None:
         """Feed every non-event node + relationship edge into the sidecar store,
-        canonicalised to match the KG's entity names."""
-        event_ids = {
-            n["identifier"] for n in final_graph["nodes"]
-            if (n.get("node_type") or n.get("type")) == "event"
-        }
-        for n in final_graph["nodes"]:
+        canonicalised to match the KG's entity names. Also preserves the temporal
+        layer LightRAG drops: per-actor timelines, dated events with their
+        (canonical) participants, and event->event ordering edges."""
+        nodes, edges = final_graph["nodes"], final_graph["edges"]
+        event_nodes = {n["identifier"]: n for n in nodes
+                       if (n.get("node_type") or n.get("type")) == "event"}
+        event_ids = set(event_nodes)
+        for n in nodes:
             if n["identifier"] in event_ids:
                 continue
             canon = mapping.get(n["identifier"], n["identifier"])
             self.structured.merge_entity(canon, n, source_id)
-        for e in final_graph["edges"]:
+        # Participants per event (event_participation: event -> actor), canonicalised.
+        participants: dict[str, list[str]] = {}
+        for e in edges:
+            if e.get("type") == "event_participation":
+                ev, actor = e.get("src_identifier"), e.get("dst_identifier")
+                if ev in event_ids and actor:
+                    participants.setdefault(ev, []).append(mapping.get(actor, actor))
+        for ev_id, en in event_nodes.items():
+            self.structured.merge_event(ev_id, en, participants.get(ev_id, []), source_id)
+        for e in edges:
             src, dst = e.get("src_identifier"), e.get("dst_identifier")
-            if e.get("type") == "evidence" or src in event_ids or dst in event_ids:
+            etype = e.get("type")
+            if etype in ("event_followed_by", "event_coincident") and src and dst:
+                self.structured.merge_temporal_edge(etype, src, dst)
+                continue
+            if etype == "evidence" or src in event_ids or dst in event_ids:
                 continue
             cs, cd = mapping.get(src, src), mapping.get(dst, dst)
             if cs and cd and cs != cd:

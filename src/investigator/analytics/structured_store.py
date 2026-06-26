@@ -46,14 +46,33 @@ def _edge_key(src: str, dst: str) -> str:
     return a + "\t" + b
 
 
+_DATE_RE = __import__("re").compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _dates(v) -> list[str]:
+    """Coerce a date field (str / list / None) to a sorted list of ISO dates."""
+    out = []
+    for item in (v if isinstance(v, (list, tuple)) else [v]):
+        s = str(item or "").strip()
+        m = _DATE_RE.search(s)
+        if m and m.group(0) not in out:
+            out.append(m.group(0))
+    return sorted(out)
+
+
 class StructuredStore:
-    """All structured node/edge properties, merged across investigations."""
+    """All structured node/edge properties, merged across investigations -- plus
+    a temporal layer (per-entity timelines, dated events, event ordering) that
+    LightRAG drops entirely when it strips events on merge."""
 
     def __init__(self, path):
         self.path = Path(path)
         d = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.entities: dict = d.get("entities", {})
         self.edges: dict = d.get("edges", {})
+        # Temporal layer.
+        self.events: dict = d.get("events", {})            # event_id -> {dates, participants, ...}
+        self.temporal_edges: list = d.get("temporal_edges", [])  # event->event ordering
 
     # --- merge -------------------------------------------------------------
 
@@ -61,9 +80,22 @@ class StructuredStore:
         rec = self.entities.setdefault(name, {
             "name": name, "types": [], "labels": [], "runs": [], "themes": [],
             "sources": [], "investigations": [], "data": {},
-            "evidence": [], "beliefs": {},
+            "evidence": [], "beliefs": {}, "timeline": [],
         })
+        rec.setdefault("timeline", [])
         data = node.get("data") or {}
+        # Per-actor dated mini-timeline (TimelineEvent: {date, event}).
+        seen_tl = {(t.get("date"), t.get("event")) for t in rec["timeline"]}
+        for te in (data.get("timeline_events") or []):
+            if not isinstance(te, dict):
+                continue
+            ev = _clean(te.get("event"))
+            ds = _dates(te.get("date"))
+            entry = {"date": ds[0] if ds else "", "event": ev[:300]}
+            key = (entry["date"], entry["event"])
+            if ev and key not in seen_tl:
+                seen_tl.add(key)
+                rec["timeline"].append(entry)
         t = data.get("type")
         for tv in (t if isinstance(t, list) else [t]):
             tv = _clean(tv)
@@ -81,24 +113,32 @@ class StructuredStore:
             rec["sources"].append(src)
         if source_id not in rec["investigations"]:
             rec["investigations"].append(source_id)
-        for k in ("position", "location", "address"):
+        # High-signal structured attributes (no chunks => captured here or lost).
+        for k in ("position", "location", "address", "email", "phone_number",
+                  "financial_restrictions"):
             v = _clean(data.get(k))
             if v and not rec["data"].get(k):
                 rec["data"][k] = v
         belief = rec["beliefs"].setdefault(source_id, {})
-        for k in ("prob", "score", "posterior_prob"):
+        for k in ("prob", "score", "posterior_prob", "posterior_delta"):
             val = _num(node.get(k))
             if val is not None:
                 belief[k] = val
-                rec[k] = max(val, rec.get(k, val))
+                if k == "posterior_delta":
+                    # keep the largest-magnitude shift seen (the impact signal)
+                    if abs(val) > abs(rec.get(k) or 0.0):
+                        rec[k] = val
+                else:
+                    rec[k] = max(val, rec.get(k, val))
         self._merge_evidence(rec, node.get("evidence"), source_id)
         rec["evidence_count"] = len(rec["evidence"])
 
     def merge_edge(self, src: str, dst: str, edge: dict, source_id: str) -> None:
         rec = self.edges.setdefault(_edge_key(src, dst), {
-            "src": src, "dst": dst, "relations": [], "sources": [],
+            "src": src, "dst": dst, "relations": [], "roles": [], "sources": [],
             "runs": [], "investigations": [], "is_hypothesis": False, "weight": 0.0,
         })
+        rec.setdefault("roles", [])
         rec["src"], rec["dst"] = src, dst
         rel = edge.get("relations")
         if isinstance(rel, str):
@@ -111,7 +151,13 @@ class StructuredStore:
                      "context": _clean(rel.get("context"))}
             if entry not in rec["relations"] and (entry["type"] or entry["context"]):
                 rec["relations"].append(entry)
-        for u in (_clean(edge.get("search_url")), _clean(edge.get("source"))):
+        # Edge attributes: role (nature of the link) + per-edge citation.
+        attrs = edge.get("attributes") or {}
+        role = _clean(attrs.get("role"))
+        if role and role not in rec["roles"]:
+            rec["roles"].append(role)
+        for u in (_clean(edge.get("search_url")), _clean(edge.get("source")),
+                  _clean(attrs.get("source_url"))):
             if u.startswith("http") and u not in rec["sources"]:
                 rec["sources"].append(u)
         self._union(rec["runs"], edge.get("runs"))
@@ -149,12 +195,70 @@ class StructuredStore:
                 seen.add(key)
                 rec["evidence"].append(item)
 
+    # --- temporal layer ----------------------------------------------------
+
+    def merge_event(self, event_id: str, event_node: dict, participants: list[str],
+                    source_id: str) -> None:
+        """A dated event (stripped from the LightRAG graph) + the canonical
+        actors that took part. Keyed by event identifier, merged across runs."""
+        rec = self.events.setdefault(event_id, {
+            "id": event_id, "dates": [], "participants": [], "type": "",
+            "runs": [], "investigations": [],
+        })
+        data = event_node.get("data") or {}
+        for ds in _dates(data.get("date")):
+            if ds not in rec["dates"]:
+                rec["dates"].append(ds)
+        rec["dates"].sort()
+        if not rec["type"]:
+            rec["type"] = _clean(data.get("event_type"))
+        self._union(rec["participants"], participants)
+        self._union(rec["runs"], event_node.get("runs"))
+        if source_id not in rec["investigations"]:
+            rec["investigations"].append(source_id)
+
+    def merge_temporal_edge(self, etype: str, src: str, dst: str) -> None:
+        """An event->event ordering edge (event_followed_by / event_coincident)."""
+        key = {"type": etype, "src": src, "dst": dst}
+        if key not in self.temporal_edges:
+            self.temporal_edges.append(key)
+
     # --- access / persist --------------------------------------------------
 
     def get_entity(self, name: str):
         return self.entities.get(name)
 
+    def entity_timeline(self, name: str) -> list[dict]:
+        """An actor's chronology: their own timeline_events PLUS the dated events
+        they participated in, deduped and sorted by date (undated last)."""
+        rec = self.entities.get(name)
+        if not rec:
+            return []
+        out, seen = [], set()
+        for te in rec.get("timeline", []):
+            k = (te.get("date", ""), te.get("event", ""))
+            if k not in seen:
+                seen.add(k)
+                out.append({"date": te.get("date", ""), "event": te.get("event", ""),
+                            "kind": "timeline"})
+        for ev in self.events.values():
+            if name in (ev.get("participants") or []):
+                date = (ev.get("dates") or [""])[0]
+                label = ev["id"]
+                k = (date, label)
+                if k not in seen:
+                    seen.add(k)
+                    out.append({"date": date, "event": label, "kind": "event"})
+        # dated first (chronological), undated appended after
+        return sorted(out, key=lambda x: (x["date"] == "", x["date"]))
+
+    def date_range(self, name: str) -> tuple[str, str]:
+        ds = sorted(t["date"] for t in self.entity_timeline(name) if t.get("date"))
+        return (ds[0], ds[-1]) if ds else ("", "")
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(
-            {"entities": self.entities, "edges": self.edges}, ensure_ascii=False))
+            {"entities": self.entities, "edges": self.edges,
+             "events": self.events, "temporal_edges": self.temporal_edges},
+            ensure_ascii=False))

@@ -855,6 +855,8 @@ def kb_query():
         rec = kb.structured_entity(name) if name else None
         if rec:
             ev = rec.get("evidence") or []
+            timeline = kb.entity_timeline(name)
+            dated = [t["date"] for t in timeline if t.get("date")]
             ent["structured"] = {
                 "prob": rec.get("prob"), "score": rec.get("score"),
                 "posterior_prob": rec.get("posterior_prob"),
@@ -869,6 +871,9 @@ def kb_query():
                     for x in ev[:5]
                 ],
                 "data": rec.get("data") or {},
+                "timeline": timeline[:30],
+                "firstSeen": dated[0] if dated else None,
+                "lastSeen": dated[-1] if dated else None,
             }
         entities.append(ent)
     relationships = [
