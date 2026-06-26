@@ -186,6 +186,18 @@ the computed paths — is sent to the LLM, which writes a short, evidence-ground
 report on *how* the selected entities interconnect (naming each chain and what
 each broker bridges).
 
+### Key network — the automatic version
+
+The **Key network** tab does this with no manual selection: it seeds the
+hidden-connections algorithm with the investigation's *most-relevant* nodes —
+the **theme members** (the evidence-weighted TMFG clusters) plus the **bridges**
+(cross-investigation actors) — and surfaces the **broker** entities that stitch
+those otherwise-separate themes into one skeleton. It's the connective tissue the
+themes view doesn't show: on the Netanyahu run the 21 theme nodes resolve to a
+single broker, the **Attorney-General's Office**, binding the clusters. One
+**Analyse** click then summarises the whole investigation's structure. (Quality
+tracks the upstream themes/bridges — a thin run yields a thin skeleton.)
+
 ---
 
 ## Fact-checking: how many sources agree
@@ -266,8 +278,9 @@ Three processes:
 - **Frontend** (`ui/`, Svelte 5 + Vite, port **5180**) — the investigator UI:
   New-Investigation wizard (domain-aware query refinement + a vetoable review
   step, plus a Sources step for adding your own PDFs/URLs), live progress, the
-  Graph / TMFG-themes / Data / Report / Sources tabs, on-demand **Connections**
-  analysis (select entities → hidden-relationship subgraph + LLM summary),
+  Graph / Key-network / TMFG-themes / Data / Report / Sources tabs, on-demand
+  **Connections** analysis (select entities → hidden-relationship subgraph + LLM
+  summary), an automatic **Key network** (theme+bridge skeleton with brokers),
   per-actor/per-evidence **corroboration** badges, a **Knowledge Base** tab
   (query the cumulative cross-investigation KG), and a **Settings** page for
   connecting data providers.
