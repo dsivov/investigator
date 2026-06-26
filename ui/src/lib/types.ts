@@ -188,6 +188,7 @@ export interface ConnectorResult {
   missing: string[];
   paths?: Array<{ from: string; to: string; path: string[]; hops: number }>;
   unreachablePairs: string[][];
+  seed?: { themeMembers: number; bridges: number; seedCount: number };
   stats: {
     selectedCount: number;
     connectorCount: number;

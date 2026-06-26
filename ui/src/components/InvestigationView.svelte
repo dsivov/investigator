@@ -5,6 +5,7 @@
 
   import Overview from "./tabs/Overview.svelte";
   import Graph from "./tabs/Graph.svelte";
+  import KeyNetwork from "./tabs/KeyNetwork.svelte";
   import Tmfg from "./tabs/Tmfg.svelte";
   import Data from "./tabs/Data.svelte";
   import Report from "./tabs/Report.svelte";
@@ -159,6 +160,7 @@
   const TABS = [
     { id: "overview", label: "Overview" },
     { id: "graph", label: "Graph" },
+    { id: "key", label: "Key network" },
     { id: "tmfg", label: "TMFG themes" },
     { id: "data", label: "Data" },
     { id: "report", label: "Report" },
@@ -245,6 +247,8 @@
       {/if}
     {:else if tab === "graph"}
       <Graph {id} runs={(inv.threads ?? []).map((t) => t.name)} />
+    {:else if tab === "key"}
+      <KeyNetwork {id} />
     {:else if tab === "tmfg"}
       <Tmfg {id} runs={(inv.threads ?? []).map((t) => t.name)} />
     {:else if tab === "data"}

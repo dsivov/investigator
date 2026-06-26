@@ -1214,6 +1214,55 @@ def get_graph(inv_id):
     return jsonify(_graph_payload(path))
 
 
+def _key_network_seed(graph_payload: dict, tmfg_payload: dict,
+                      min_seed: int = 6, max_seed: int = 40) -> tuple[list[str], dict]:
+    """The most-relevant nodes to skeleton the investigation: theme members
+    (evidence-weighted clusters) UNION bridges (cross-investigation actors).
+    Falls back to top-score entities when that is thin (e.g. single-query runs),
+    and caps the set by score so the connector stays bounded."""
+    ents = [n for n in graph_payload.get("nodes", []) if n.get("type") == "entity"]
+    present = {n["id"] for n in ents}
+    by_score = {n["id"]: (n.get("score") or 0.0) for n in ents}
+    theme_members = {m for t in (tmfg_payload.get("themes") or [])
+                     for m in (t.get("members") or []) if m in present}
+    bridges = {b["id"] for b in (graph_payload.get("bridges") or []) if b.get("id") in present}
+    seed = theme_members | bridges
+    if len(seed) < min_seed:
+        for n in sorted(ents, key=lambda x: -(x.get("score") or 0.0)):
+            seed.add(n["id"])
+            if len(seed) >= min_seed:
+                break
+    if len(seed) > max_seed:
+        seed = set(sorted(seed, key=lambda x: -by_score.get(x, 0.0))[:max_seed])
+    return (sorted(seed, key=lambda x: -by_score.get(x, 0.0)),
+            {"themeMembers": len(theme_members), "bridges": len(bridges), "seedCount": len(seed)})
+
+
+@app.route("/api/investigations/<inv_id>/key-network", methods=["GET"])
+def key_network(inv_id):
+    """Automated 'most representative' subgraph: seed the hidden-connections
+    connector with the theme + bridge nodes and surface the brokers stitching
+    them together."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    gp = _graph_payload(path)
+    try:
+        tp = bt._payload(json.loads(path.read_text()))
+    except Exception:  # noqa: BLE001 -- themes optional (engine ran without TMFG)
+        tp = {"themes": []}
+    seed, meta = _key_network_seed(gp, tp)
+    if len(seed) < 2:
+        return jsonify({"nodes": [], "edges": [], "selected": seed, "connectors": [],
+                        "brokers": [], "missing": [], "paths": [], "unreachablePairs": [],
+                        "seed": meta,
+                        "stats": {"selectedCount": len(seed), "connectorCount": 0,
+                                  "edgeCount": 0, "unreachablePairs": 0}})
+    result = connector_subgraph(gp["nodes"], gp["edges"], seed, mode="hidden", k=2)
+    result["seed"] = meta
+    return jsonify(result)
+
+
 @app.route("/api/investigations/<inv_id>/connect", methods=["POST"])
 def connect_entities(inv_id):
     """Connector subgraph between a chosen set of entities/events: shortest-path

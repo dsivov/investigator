@@ -59,6 +59,10 @@ export const api = {
   getSources: (id: string) =>
     get<SourcesPayload>(`/api/investigations/${id}/sources`),
 
+  // Auto "key network": hidden-connections subgraph seeded with theme+bridge nodes.
+  getKeyNetwork: (id: string) =>
+    get<ConnectorResult>(`/api/investigations/${id}/key-network`),
+
   // External-records enrichment (SEC EDGAR + OpenRegistry) on company entities.
   getEnrichment: (id: string) =>
     get<EnrichmentPayload>(`/api/investigations/${id}/enrichment`),
