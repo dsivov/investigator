@@ -1,14 +1,13 @@
-# OSINTGraph UI — Backend API contract
+# Investigator UI — Backend API contract
 
 This document defines the REST + SSE contract between the UI frontend
-and the OSINTGraph backend. It is the source of truth that lets the
-frontend and the backend be built in parallel.
+and the Investigator backend (`ui/server.py`).
 
-The backend is a thin Flask service that wraps the existing pipeline
-scripts (`research/cross_event_investigation.py`,
-`research/build_customer_report.py`, `research/build_*_prototype.py`).
-It runs on the same host as the OSINTGraph server itself; a
-single-tenant local-network deployment is assumed for v1 (no auth, no
+The backend is a thin Flask service that wraps the pipeline scripts
+(`research/cross_event_investigation.py`, `research/build_customer_report.py`,
+`research/build_*_prototype.py`, `research/enrichment.py`) and exposes the
+analysis + knowledge-base endpoints. It runs on the same host as the pipeline
+engine; a single-tenant local-network deployment is assumed (no auth, no
 multi-user).
 
 ---
@@ -113,6 +112,45 @@ download or rendered HTML; never embedded in JSON responses.
 | `GET`  | `/api/investigations/:id/artifacts/:name`  | Download a named artifact (raw.json, customer_report.md, graph.html, tmfg.html, analyst_review.md). |
 | `GET`  | `/api/investigations/:id/log`              | Download captured subprocess stdout. Available for any investigation that ran on this server, including failed/cancelled ones. |
 
+### Analysis (per investigation)
+
+See [analysis.md](analysis.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/investigations/:id/connect`          | Connector subgraph between selected entities. Body `{entities[], mode?, k?, maxHops?}`; `mode` ∈ `shortest_path` / `hidden` / `induced`. Returns `{nodes, edges, selected, connectors, brokers, paths, ...}`. |
+| `POST` | `/api/investigations/:id/connect/analyze`  | LLM summary of the connected subgraph. Body `{entities[], mode?}`. Returns `{report}`. |
+| `GET`  | `/api/investigations/:id/key-network`      | Automatic "key network": hidden-connections subgraph seeded with theme + bridge nodes. Returns the connector result + `seed` meta. |
+
+### Knowledge base (cumulative cross-investigation KG)
+
+See [knowledge-base.md](knowledge-base.md). Requires the analytics engine.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/api/kb/stats`  | `{available, store, entities, edges, canonicals}`. |
+| `POST` | `/api/kb/query`  | Query across all investigations. Body `{query, mode?, synthesize?}`. Returns `{answer?, entities[], relationships[]}`; each entity carries its `structured` record (beliefs, evidence, sources, timeline, firstSeen/lastSeen). |
+
+### Sources & enrichment
+
+See [sources.md](sources.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/api/search-sources`              | Available search sources `{id, label, description, requiresKey, available}`. |
+| `GET`  | `/api/investigations/:id/enrich`   | Enrichment status `{running, hasEnriched, recordCount}`. |
+| `POST` | `/api/investigations/:id/enrich`   | Run EDGAR + OpenRegistry enrichment on the top company entities. Body `{topN?}`. |
+| `GET`  | `/api/investigations/:id/enrichment` | The external records `{items[], total, ...}`. |
+
+### Integrations (OpenRegistry login)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/api/integrations/openregistry`          | Status `{connected, method, loginInProgress, authorizeUrl}`. |
+| `POST` | `/api/integrations/openregistry/login`    | Start the one-time browser OAuth (spawns the login subprocess). |
+| `POST` | `/api/integrations/openregistry/complete` | Finish a login the browser couldn't auto-redirect: body `{redirectUrl}`. |
+| `POST` | `/api/integrations/openregistry/logout`   | Delete the stored token. |
+
 #### `POST /api/investigations` request body
 
 ```json
@@ -130,12 +168,19 @@ download or rendered HTML; never embedded in JSON responses.
   "advanced": {                              // all optional, sane defaults applied
     "stage1Articles": 50,
     "stage2ArticlesPerEntity": 20,
-    "topNEntities": 8
-  }
+    "topNEntities": 8,
+    "enhancedRetrieval": false,              // LLM query-expansion + rerank + entity-deepening
+    "retrievalDepth": 2,
+    "retrievalExpansions": 4
+  },
+  "gnewsEnabled": true,                       // search Google News
+  "sources": ["wikipedia", "gdelt", "websearch"],  // additional search sources (see sources.md)
+  "extraSources": { "urls": [], "pdfs": [] }  // your own sources; pdfs are upload ids from POST /api/uploads
 }
 ```
 
-Single-query mode: `kind: "single"` and `threads` has exactly one element.
+Single-query mode: `kind: "single"` and `threads` has exactly one element. With
+`gnewsEnabled: false` you must supply at least one `sources` entry, URL, or PDF.
 
 #### `GET /api/investigations/:id/stream` (Server-Sent Events)
 

@@ -1,4 +1,9 @@
-# OSINTGraph — Triangulation Core Review
+# Triangulation Core Review
+
+> **Status:** historical review record (project then named *OSINTGraph*). A
+> stage-by-stage validation of the triangulation core against a golden snapshot —
+> useful as a reference for the core's invariants and the findings (C1–C4, F-*,
+> H1, L1) that shaped it.
 
 Stage-by-stage logical analysis of the investigation pipeline's core
 (`NER → dedup → graph construction → triangulation`), each backed by unit tests

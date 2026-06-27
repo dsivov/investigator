@@ -1,8 +1,13 @@
-# OSINTGraph — Data Model & Data-Flow Rework (design)
+# Data Model & Data-Flow Rework (design)
 
-> Phase 3, priority 1 (data model) + 2 (loops). Behaviour-*changing* refactor —
-> verified structurally via `tests/run_smoke.py`, not by exact parity
-> (gpt-4.1 is non-deterministic). Each step ships as its own smoke-tested commit.
+> **Status:** historical design record for the per-investigation state/data-flow
+> refactor (the project was then named *OSINTGraph*; it is now *Investigator*).
+> The pipeline data flow it describes is current. For the **cumulative
+> knowledge-graph** data model — entity/edge records and the structured + temporal
+> sidecar — see [knowledge-base.md](knowledge-base.md).
+>
+> Original note: Phase 3, priority 1 (data model) + 2 (loops). Behaviour-changing
+> refactor verified structurally via `tests/run_smoke.py`.
 
 ---
 

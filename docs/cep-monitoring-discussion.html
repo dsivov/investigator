@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investigator → Standing Monitor (CEP / Impact Analysis) — Discussion</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#0f172a; --panel2:#111c33; --line:#1e293b;
+    --txt:#e2e8f0; --muted:#94a3b8; --dim:#64748b;
+    --emerald:#10b981; --emerald-d:#064e3b; --amber:#f59e0b; --sky:#38bdf8;
+    --rose:#fb7185; --violet:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    line-height:1.6;font-size:16px}
+  .wrap{max-width:1000px;margin:0 auto;padding:48px 24px 96px}
+  header.hero{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:36px}
+  .eyebrow{color:var(--emerald);font-size:.75rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+  h1{font-size:2rem;margin:.3rem 0 .5rem;line-height:1.2}
+  h2{font-size:1.3rem;margin:48px 0 14px;padding-top:8px}
+  h3{font-size:1.02rem;margin:22px 0 8px;color:#cbd5e1}
+  p{margin:.6rem 0}
+  .lead{color:var(--muted);font-size:1.08rem}
+  a{color:var(--emerald);text-decoration:none}
+  code{background:#0b1220;border:1px solid var(--line);border-radius:4px;padding:.05em .35em;font-size:.86em;
+    font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  .muted{color:var(--muted)}
+  .dim{color:var(--dim)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;font-size:.7rem;font-weight:600;letter-spacing:.04em;
+    padding:.12em .6em;border-radius:999px;border:1px solid}
+  .pill.reuse{color:var(--emerald);border-color:#10543e;background:#06281f}
+  .pill.new{color:var(--amber);border-color:#5a3d09;background:#2a1f07}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.94rem}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .callout{border-left:3px solid var(--amber);background:#1a1407;border-radius:0 10px 10px 0;
+    padding:14px 18px;margin:16px 0}
+  .callout.lean{border-left-color:var(--emerald);background:#06281f33}
+  .callout b{color:#fde68a}
+  .callout.lean b{color:#6ee7b7}
+  figure{margin:24px 0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 18px}
+  figcaption{color:var(--dim);font-size:.82rem;margin-top:12px;text-align:center}
+  svg{display:block;margin:0 auto;width:100%;height:auto}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:12px;font-size:.78rem;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+  ol.q{counter-reset:q;list-style:none;padding:0}
+  ol.q li{counter-increment:q;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px 14px 52px;position:relative;margin:10px 0}
+  ol.q li::before{content:counter(q);position:absolute;left:14px;top:13px;width:26px;height:26px;border-radius:50%;
+    background:var(--emerald-d);color:#6ee7b7;font-weight:700;display:grid;place-items:center;font-size:.85rem;
+    border:1px solid #10543e}
+  .phase{display:flex;gap:14px;flex-wrap:wrap}
+  .phase .card{flex:1;min-width:240px}
+  .tag{font-size:.7rem;color:var(--dim)}
+  .foot{margin-top:60px;border-top:1px solid var(--line);padding-top:18px;color:var(--dim);font-size:.85rem}
+  ul.tight{margin:.4rem 0;padding-left:1.2rem}
+  ul.tight li{margin:.25rem 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Investigator · open design discussion</div>
+  <h1>From investigation to standing monitor</h1>
+  <p class="lead">A CEP / impact-analysis layer: a scheduled job ingests fresh news, extracts events &amp; actors,
+  intersects them with the global knowledge graph, and propagates <b>impact</b> onto connected
+  nodes — direct or hidden.</p>
+  <p class="dim" style="font-size:.85rem">Draft for review — nothing here is built yet. Numbers and names are illustrative.</p>
+</header>
+
+<!-- ─────────────────────────  PULL → PUSH  ───────────────────────── -->
+<h2>The shift: pull → push</h2>
+<p>Investigator today is <b>request-driven</b>: you start an investigation and it builds a graph.
+This turns it into a <b>standing monitor</b>: it watches the world and tells <i>you</i> when something in
+your graph moves.</p>
+
+<figure>
+<svg viewBox="0 0 920 200" role="img" aria-label="Pull vs push modes">
+  <!-- PULL -->
+  <rect x="20" y="30" width="420" height="140" rx="12" fill="#0f172a" stroke="#1e293b"/>
+  <text x="40" y="58" fill="#64748b" font-size="12" letter-spacing="2">TODAY · PULL</text>
+  <circle cx="80" cy="115" r="22" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+  <text x="80" y="120" text-anchor="middle" fill="#e2e8f0" font-size="11">you</text>
+  <line x1="104" y1="115" x2="180" y2="115" stroke="#38bdf8" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="142" y="105" text-anchor="middle" fill="#94a3b8" font-size="10">ask</text>
+  <rect x="184" y="92" width="110" height="46" rx="8" fill="#06281f" stroke="#10543e"/>
+  <text x="239" y="120" text-anchor="middle" fill="#6ee7b7" font-size="11">investigate</text>
+  <line x1="298" y1="115" x2="372" y2="115" stroke="#10b981" stroke-width="2" marker-end="url(#a2)"/>
+  <rect x="376" y="92" width="46" height="46" rx="8" fill="#0b1220" stroke="#1e293b"/>
+  <text x="399" y="120" text-anchor="middle" fill="#94a3b8" font-size="10">graph</text>
+
+  <!-- PUSH -->
+  <rect x="480" y="30" width="420" height="140" rx="12" fill="#0f172a" stroke="#1e293b"/>
+  <text x="500" y="58" fill="#64748b" font-size="12" letter-spacing="2">PROPOSED · PUSH</text>
+  <rect x="500" y="92" width="92" height="46" rx="8" fill="#0b1220" stroke="#1e293b"/>
+  <text x="546" y="113" text-anchor="middle" fill="#94a3b8" font-size="10">daily</text>
+  <text x="546" y="127" text-anchor="middle" fill="#94a3b8" font-size="10">news</text>
+  <line x1="596" y1="115" x2="660" y2="115" stroke="#f59e0b" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="664" y="92" width="96" height="46" rx="8" fill="#2a1f07" stroke="#5a3d09"/>
+  <text x="712" y="113" text-anchor="middle" fill="#fde68a" font-size="11">monitor</text>
+  <text x="712" y="127" text-anchor="middle" fill="#fde68a" font-size="11">+ impact</text>
+  <line x1="764" y1="115" x2="828" y2="115" stroke="#f59e0b" stroke-width="2" marker-end="url(#a3)"/>
+  <circle cx="852" cy="115" r="22" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+  <text x="852" y="119" text-anchor="middle" fill="#e2e8f0" font-size="10">alert</text>
+  <defs>
+    <marker id="a1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#38bdf8"/></marker>
+    <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#10b981"/></marker>
+    <marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#f59e0b"/></marker>
+  </defs>
+</svg>
+<figcaption>You ask once vs. it watches continuously and surfaces what changed in your graph.</figcaption>
+</figure>
+
+<!-- ─────────────────────────  REUSE vs NEW  ───────────────────────── -->
+<h2>What it reuses vs. what's new</h2>
+<p>The concept maps onto pieces we already have — roughly <b>80% reuse</b>.</p>
+<div class="grid2">
+  <div class="card">
+    <h3><span class="pill reuse">reuses</span></h3>
+    <ul class="tight">
+      <li>Event &amp; actor <b>extraction</b> (dspy + gpt-4.1)</li>
+      <li><b>Canonicalization</b> — new names → KG entities</li>
+      <li>Cumulative <b>KG + structured store</b> = the global graph</li>
+      <li><b>Connector</b> — direct &amp; hidden reach, brokers</li>
+      <li><b>Junction-tree belief propagation</b> — fuse evidence, propagate to neighbours</li>
+      <li><b>Search sources</b> — news / Wikipedia / GDELT</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3><span class="pill new">new</span></h3>
+    <ul class="tight">
+      <li>A <b>scheduler</b> / standing job runner</li>
+      <li>A <b>watchlist</b> scoping primitive</li>
+      <li>An <b>intersection filter</b> (KG-relevant news only)</li>
+      <li>An <b>impact model</b> + scorer</li>
+      <li>A <b>temporal layer</b> (event-time, decay, timeline)</li>
+      <li>A <b>digest / alert</b> surface</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─────────────────────────  PIPELINE  ───────────────────────── -->
+<h2>The daily pipeline</h2>
+<figure>
+<svg viewBox="0 0 920 300" role="img" aria-label="Daily monitoring pipeline">
+  <!-- top row flow -->
+  <g font-size="11" text-anchor="middle">
+    <rect x="20"  y="30" width="120" height="52" rx="9" fill="#0b1220" stroke="#1e293b"/>
+    <text x="80" y="52" fill="#cbd5e1">top-k news</text><text x="80" y="68" fill="#64748b">+ sources</text>
+    <rect x="180" y="30" width="120" height="52" rx="9" fill="#06281f" stroke="#10543e"/>
+    <text x="240" y="52" fill="#6ee7b7">extract</text><text x="240" y="68" fill="#3f9e7d">events / actors</text>
+    <rect x="340" y="30" width="120" height="52" rx="9" fill="#06281f" stroke="#10543e"/>
+    <text x="400" y="52" fill="#6ee7b7">canonicalize</text><text x="400" y="68" fill="#3f9e7d">→ KG names</text>
+    <rect x="500" y="30" width="120" height="52" rx="9" fill="#16233c" stroke="#2b4368"/>
+    <text x="560" y="52" fill="#bcd2ff">intersect</text><text x="560" y="68" fill="#7f9bce">global KG</text>
+    <rect x="660" y="30" width="120" height="52" rx="9" fill="#2a1f07" stroke="#5a3d09"/>
+    <text x="720" y="52" fill="#fde68a">impact</text><text x="720" y="68" fill="#b48a3f">connector + BP</text>
+    <rect x="800" y="30" width="100" height="52" rx="9" fill="#1e293b" stroke="#38bdf8"/>
+    <text x="850" y="52" fill="#e2e8f0">digest</text><text x="850" y="68" fill="#7cc4e8">/ alert</text>
+  </g>
+  <!-- arrows -->
+  <g stroke-width="2" fill="none">
+    <line x1="140" y1="56" x2="178" y2="56" stroke="#334155" marker-end="url(#p)"/>
+    <line x1="300" y1="56" x2="338" y2="56" stroke="#334155" marker-end="url(#p)"/>
+    <line x1="460" y1="56" x2="498" y2="56" stroke="#334155" marker-end="url(#p)"/>
+    <line x1="620" y1="56" x2="658" y2="56" stroke="#334155" marker-end="url(#p)"/>
+    <line x1="780" y1="56" x2="798" y2="56" stroke="#334155" marker-end="url(#p)"/>
+  </g>
+  <!-- global KG store feeding intersect -->
+  <g>
+    <ellipse cx="560" cy="210" rx="120" ry="20" fill="#0f172a" stroke="#2b4368"/>
+    <rect x="440" y="150" width="240" height="60" fill="#0f172a" stroke="none"/>
+    <ellipse cx="560" cy="150" rx="120" ry="20" fill="#16233c" stroke="#2b4368"/>
+    <line x1="440" y1="150" x2="440" y2="210" stroke="#2b4368"/>
+    <line x1="680" y1="150" x2="680" y2="210" stroke="#2b4368"/>
+    <text x="560" y="155" text-anchor="middle" fill="#bcd2ff" font-size="12">global knowledge graph</text>
+    <text x="560" y="192" text-anchor="middle" fill="#7f9bce" font-size="10">entities · relationships · beliefs · evidence · provenance</text>
+    <line x1="560" y1="130" x2="560" y2="84" stroke="#2b4368" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#pb)"/>
+  </g>
+  <text x="560" y="118" text-anchor="middle" fill="#7f9bce" font-size="10">match against watched entities</text>
+  <defs>
+    <marker id="p" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#334155"/></marker>
+    <marker id="pb" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2b4368"/></marker>
+  </defs>
+</svg>
+<figcaption>Most daily news is noise; the <b>intersection filter</b> keeps only events that touch the graph.</figcaption>
+</figure>
+
+<!-- ─────────────────────────  IMPACT  ───────────────────────── -->
+<h2>The crux: what is “impact”?</h2>
+<p>This is the make-or-break choice. Three framings — I'd <b>combine</b> the first two.</p>
+<table>
+  <tr><th>Framing</th><th>Idea</th><th>Reuses</th></tr>
+  <tr><td><b style="color:var(--emerald)">Belief-shift</b><br><span class="tag">principled core</span></td>
+      <td>A new event is fresh evidence on entity X → re-run belief propagation → the <b>posterior deltas across the graph are the impact</b>, flowing to neighbours by construction.</td>
+      <td>Junction-tree BP</td></tr>
+  <tr><td><b style="color:var(--amber)">Topological reach</b><br><span class="tag">the “direct or hidden”</span></td>
+      <td>Use the connector to find X's affected neighbourhood — direct <i>and</i> brokered/indirect — weighted by path proximity &amp; strength.</td>
+      <td>Connector / hidden-paths</td></tr>
+  <tr><td><b style="color:var(--sky)">Relevance gate</b><br><span class="tag">noise control</span></td>
+      <td>Only surface impact on nodes the user actually watches.</td>
+      <td>Watchlist</td></tr>
+</table>
+
+<figure>
+<svg viewBox="0 0 920 320" role="img" aria-label="Impact ripple through the graph">
+  <!-- shock rings -->
+  <circle cx="250" cy="170" r="70"  fill="none" stroke="#10b981" stroke-opacity="0.18"/>
+  <circle cx="250" cy="170" r="130" fill="none" stroke="#f59e0b" stroke-opacity="0.14"/>
+  <circle cx="250" cy="170" r="190" fill="none" stroke="#38bdf8" stroke-opacity="0.10" stroke-dasharray="4 4"/>
+  <!-- edges -->
+  <g stroke-width="2">
+    <line x1="250" y1="170" x2="370" y2="110" stroke="#f59e0b" stroke-opacity=".6"/>
+    <line x1="250" y1="170" x2="360" y2="235" stroke="#f59e0b" stroke-opacity=".6"/>
+    <line x1="250" y1="170" x2="135" y2="95"  stroke="#f59e0b" stroke-opacity=".6"/>
+    <line x1="370" y1="110" x2="500" y2="80"  stroke="#38bdf8" stroke-opacity=".5" stroke-dasharray="5 4"/>
+    <line x1="360" y1="235" x2="510" y2="260" stroke="#38bdf8" stroke-opacity=".5" stroke-dasharray="5 4"/>
+    <line x1="500" y1="80"  x2="640" y2="140" stroke="#38bdf8" stroke-opacity=".35" stroke-dasharray="5 4"/>
+  </g>
+  <!-- new event star -->
+  <g transform="translate(250,170)">
+    <path d="M0,-30 L8,-9 L30,-9 L12,5 L19,27 L0,13 L-19,27 L-12,5 L-30,-9 L-8,-9 Z" fill="#10b981" stroke="#34d399" stroke-width="2"/>
+    <text x="0" y="55" text-anchor="middle" fill="#6ee7b7" font-size="12" font-weight="700">X · new event</text>
+  </g>
+  <!-- direct neighbours (amber) -->
+  <g font-size="11" text-anchor="middle">
+    <circle cx="370" cy="110" r="20" fill="#2a1f07" stroke="#f59e0b" stroke-width="2"/><text x="370" y="114" fill="#fde68a">A</text>
+    <circle cx="360" cy="235" r="20" fill="#2a1f07" stroke="#f59e0b" stroke-width="2"/><text x="360" y="239" fill="#fde68a">B</text>
+    <circle cx="135" cy="95"  r="20" fill="#2a1f07" stroke="#f59e0b" stroke-width="2"/><text x="135" y="99" fill="#fde68a">C</text>
+  </g>
+  <!-- hidden / brokered (sky) -->
+  <g font-size="11" text-anchor="middle">
+    <circle cx="500" cy="80"  r="18" fill="#0b2233" stroke="#38bdf8" stroke-width="2"/><text x="500" y="84" fill="#7cc4e8">D</text>
+    <circle cx="510" cy="260" r="18" fill="#0b2233" stroke="#38bdf8" stroke-width="2"/><text x="510" y="264" fill="#7cc4e8">E</text>
+    <circle cx="640" cy="140" r="18" fill="#0b2233" stroke="#38bdf8" stroke-width="2"/><text x="640" y="144" fill="#7cc4e8">F</text>
+  </g>
+  <!-- labels -->
+  <text x="250" y="40" text-anchor="middle" fill="#64748b" font-size="12">impact ripples outward, decaying with distance</text>
+  <!-- side: impact bars -->
+  <g transform="translate(710,70)" font-size="11">
+    <text x="0" y="-12" fill="#64748b" font-size="11">Δ impact</text>
+    <rect x="0" y="0"  width="150" height="14" rx="3" fill="#0b1220" stroke="#1e293b"/><rect x="0" y="0"  width="150" height="14" rx="3" fill="#10b981"/><text x="160" y="11" fill="#6ee7b7">X</text>
+    <rect x="0" y="26" width="150" height="14" rx="3" fill="#0b1220" stroke="#1e293b"/><rect x="0" y="26" width="105" height="14" rx="3" fill="#f59e0b"/><text x="160" y="37" fill="#fde68a">A,B,C</text>
+    <rect x="0" y="52" width="150" height="14" rx="3" fill="#0b1220" stroke="#1e293b"/><rect x="0" y="52" width="55"  height="14" rx="3" fill="#38bdf8"/><text x="160" y="63" fill="#7cc4e8">D,E</text>
+    <rect x="0" y="78" width="150" height="14" rx="3" fill="#0b1220" stroke="#1e293b"/><rect x="0" y="78" width="24"  height="14" rx="3" fill="#38bdf8" fill-opacity=".6"/><text x="160" y="89" fill="#5b95b8">F</text>
+  </g>
+</svg>
+<div class="legend">
+  <span><i class="dot" style="background:#10b981"></i> touched entity (X)</span>
+  <span><i class="dot" style="background:#f59e0b"></i> direct neighbours</span>
+  <span><i class="dot" style="background:#38bdf8"></i> hidden / brokered reach</span>
+</div>
+<figcaption>Connector scopes <i>which</i> nodes; BP scores <i>how much</i> each shifts; relevance decides what to surface.</figcaption>
+</figure>
+
+<div class="callout lean">
+<b>My lean:</b> connector to <i>scope</i> the affected subgraph (direct + brokered) → belief propagation on that
+<i>local</i> subgraph for principled posterior deltas → relevance-rank for the digest.
+</div>
+
+<!-- ─────────────────────────  HARD PARTS  ───────────────────────── -->
+<h2>The two honest hard parts</h2>
+<div class="callout">
+<b>1 · Temporal data exists per-investigation, but the <i>global</i> graph strips it.</b>
+We already extract solid temporal structure: <b>event dates</b> (ISO-8601 on event nodes), per-actor
+<b><code>timeline_events</code></b> (dated mini-timelines), and real <b>event→event edges</b>
+(<code>event_followed_by</code> / <code>event_coincident</code> from shared participants + date ordering),
+plus article <code>published_date</code> and a timeline filter. The gap is narrower than “no model”:
+<ul class="tight" style="margin-top:8px">
+  <li>The cumulative KG <b>drops event nodes &amp; temporal edges on merge</b> (the headline-node fix), so the
+  <i>global</i> graph monitoring intersects against is currently <b>atemporal</b> — actors + relationships only.</li>
+  <li>Actor↔actor relationships have <b>no validity interval</b> (when a link started/ended) and <b>no decay</b>
+  (old evidence weighs like new).</li>
+</ul>
+<span style="display:inline-block;margin-top:8px">So the work is mostly: <b>carry the existing event-time / timeline data
+into the global graph</b> (a temporal sidecar, like we did for structured props) + add <b>validity &amp; decay</b> — not
+inventing temporal extraction.</span>
+</div>
+<div class="callout lean">
+<b>Agreed direction (independent of the CEP decision):</b> update the <b>global graph model</b> to preserve the
+temporal data — event dates, per-entity <code>timeline_events</code>, and the event→event ordering edges — so the
+cumulative KG carries a real timeline per entity. This is worth doing regardless of whether we build full monitoring.
+</div>
+<div class="callout">
+<b>2 · BP needs a chordal / TMFG graph; the global KG isn't one.</b> Either build a small <b>local TMFG</b> around
+each touched entity per event (cheap, scoped — keeps our exact BP), or swap to a <b>diffusion / personalized-PageRank</b>
+propagation. The local-TMFG route is my lean.
+</div>
+<p class="muted">Plus the usual: daily top-k news is mostly noise (the intersection filter is essential); false
+entity-matches create phantom impacts (matching must be careful); cost &amp; drift grow as the KG grows daily.</p>
+
+<!-- ─────────────────────────  MVP  ───────────────────────── -->
+<h2>An MVP shape</h2>
+<div class="grid2">
+  <div class="card"><h3>1 · Watchlist</h3><p class="muted">A set of entities (or a domain) the user cares about — the scoping primitive, not “all the KG.”</p></div>
+  <div class="card"><h3>2 · Daily job</h3><p class="muted">Top-k news + search sources → extract → canonicalize → keep only events that <b>intersect</b> the watchlist / KG.</p></div>
+  <div class="card"><h3>3 · Impact</h3><p class="muted">Per event: connector-scope the affected subgraph; score by <i>event strength × proximity × watch-relevance</i>; optional local-TMFG BP for deltas.</p></div>
+  <div class="card"><h3>4 · Digest</h3><p class="muted">A dated <b>impact digest</b> — new events, entities hit, ripple to connected nodes, any <i>new</i> hidden connections formed — ranked, with an alert threshold.</p></div>
+</div>
+<div class="card" style="margin-top:16px"><h3>5 · Temporal</h3><p class="muted">Stamp every event/impact so each entity accrues a timeline you can scrub.</p></div>
+
+<!-- ─────────────────────────  PHASES  ───────────────────────── -->
+<h2>Phasing</h2>
+<div class="phase">
+  <div class="card" style="border-left:3px solid var(--emerald)">
+    <div class="tag">PHASE 1 · achievable now</div>
+    <h3 style="margin-top:6px">Scheduled impact digest</h3>
+    <p class="muted">Daily intake → intersect → impact (connector + local BP) → ranked digest with thresholds. Reuses the existing stack.</p>
+  </div>
+  <div class="card" style="border-left:3px solid var(--violet)">
+    <div class="tag">PHASE 2 · ambitious</div>
+    <h3 style="margin-top:6px">CEP pattern rules</h3>
+    <p class="muted">Detect <i>patterns</i> of events over time, e.g. <span class="dim">“A sanctioned → B linked to A → C transacts with B within 30 days”</span> → alert. Needs the temporal layer first.</p>
+  </div>
+</div>
+
+<!-- ─────────────────────────  QUESTIONS  ───────────────────────── -->
+<h2>Three questions to align</h2>
+<ol class="q">
+  <li><b>Who's the user / what's the watchlist?</b> A risk analyst watching a portfolio of entities? A journalist tracking one story's network? This decides whether monitoring is scoped per-watchlist or runs over the whole KG.</li>
+  <li><b>Impact = belief-shift, topological reach, or both?</b> <span class="muted">(I lean both — connector to scope, BP to score.)</span></li>
+  <li><b>Phase-1 scope:</b> ship the <i>impact digest</i> first with CEP <i>pattern rules</i> as a later phase — or do you want pattern-detection in the core from the start?</li>
+</ol>
+
+<div class="foot">
+  Investigator · CEP / monitoring discussion draft · for review.
+  Diagrams are schematic; the design is open — push back on any of it.
+</div>
+
+</div>
+</body>
+</html>

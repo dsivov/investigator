@@ -71,7 +71,8 @@ For **cross-story analysis**, every query is fed into one session of the same
 pipeline, and every node/edge is stamped with which query produced it. Actors
 that appear in more than one query's data are the **bridges**.
 
-A full diagram of the data flow is in [`FLOW.md`](FLOW.md).
+A full diagram of the data flow is in [`docs/pipeline.md`](docs/pipeline.md). All
+documentation lives under [`docs/`](docs/README.md).
 
 ---
 
@@ -272,7 +273,7 @@ Three processes:
   event extraction (dspy + GPT-4.1), evidence consolidation, graph build, the
   corroboration filter, TMFG triangulation, and junction-tree belief propagation.
 - **UI backend** (`ui/server.py`, port **5050**) — REST + SSE API
-  (see [`docs/UI_API.md`](docs/UI_API.md)). Runs investigations as subprocesses
+  (see [`docs/ui-api.md`](docs/ui-api.md)). Runs investigations as subprocesses
   that POST to the engine, streams progress, generates customer reports, and
   serves the Cytoscape-ready graph/theme payloads.
 - **Frontend** (`ui/`, Svelte 5 + Vite, port **5180**) — the investigator UI:
@@ -461,11 +462,19 @@ research/
   build_blog_post.py             Generates the illustrated blog post
   domain_presets.py              Per-domain relevance hypotheses
 ui/                      Svelte 5 + Vite frontend (the investigator UI)
-  server.py              UI backend (REST + SSE) — see docs/UI_API.md
-docs/
-  UI_API.md              REST + SSE contract
+  server.py              UI backend (REST + SSE) — see docs/ui-api.md
+docs/                    All project documentation (see docs/README.md)
+  architecture.md        System overview · components · data stores
+  pipeline.md            Graph-creation pipeline (per-investigation)
+  knowledge-base.md      Cumulative KG · temporal layer · retrieval
+  analysis.md            Themes · bridges · belief propagation
+  sources.md             Search sources + enrichment
+  operations.md          Running, env vars, OOM/memory notes
+  data-model.md          Node/edge schema + structured sidecar
+  ui-api.md              REST + SSE contract
+  roadmap.md             Productization roadmap
+  reviews/               Design reviews
   images/                README figures
-FLOW.md                  Graph-creation pipeline diagram
 news_investigations/     Run artifacts + job state (git-ignored)
 ```
 

@@ -1,8 +1,12 @@
-# OSINTGraph — Functional Analysis & Productization Roadmap
+# Functional Analysis & Productization Roadmap
 
-> Phase 3 deliverable. Analysis only — nothing here is implemented yet.
-> Branch state: `refactor/phase-1` (Phase 1 refactor + Phase 2 bug fixes, all
-> live-smoke-verified). Baseline preserved on `master` @ `93aaec4`.
+> **Status:** historical roadmap (project then named *OSINTGraph*). The
+> functional analysis below is still a good description of the core. Much of what
+> was "not yet implemented" has since shipped — the UI, cumulative knowledge
+> graph, interactive analysis (Connections / Key network), fact-checking
+> corroboration, configurable search sources, and enrichment. The current
+> forward-looking direction is the standing CEP / impact monitor
+> ([cep-monitoring-discussion.html](cep-monitoring-discussion.html)).
 
 ---
 

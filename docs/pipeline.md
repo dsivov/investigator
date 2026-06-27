@@ -1,4 +1,9 @@
-# Graph-creation flow
+# Graph-creation flow (the pipeline)
+
+> Traces the per-investigation engine pipeline (current). For what happens to the
+> graph *after* a run — accumulation into the cumulative KG — see
+> [knowledge-base.md](knowledge-base.md); for interactive analysis on top of it,
+> [analysis.md](analysis.md).
 
 How one POST of source material becomes a scored, network-analysed graph.
 Traced from `src/investigator/pipeline/orchestrator.py::_standard_pipeline`
