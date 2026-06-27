@@ -12,6 +12,7 @@ from investigator.graph.dedup import (
     merge_duplicate_group,
     merge_run_into_saved,
     resolve_edge_endpoints,
+    to_iso_date,
 )
 from investigator.graph.filter import filter_by_corroboration
 from investigator.graph.junction_tree import BeliefPropagationResult, propagate as junction_tree_propagate
@@ -48,6 +49,7 @@ __all__ = [
     "dedup_events_by_signature",
     "deduplicate_entities",
     "infer_event_temporal_edges",
+    "to_iso_date",
     "validate_entity_canonicals",
     "group_edges_by_chunk",
     "cluster_identifiers",

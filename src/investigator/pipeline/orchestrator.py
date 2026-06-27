@@ -41,6 +41,7 @@ from investigator.graph import (
     dedup_events_by_signature,
     deduplicate_entities,
     infer_event_temporal_edges,
+    to_iso_date,
     validate_entity_canonicals,
     evidence_probability,
     filter_by_corroboration,
@@ -296,6 +297,9 @@ async def extract_entities_from_chunk(json_chunk, original_chunk, working_state,
         url_value = find_value_in_nested_dict(original_chunk, "url")
         if url_value is not None:
             chunk_dict["url"] = url_value
+        published_date = find_value_in_nested_dict(original_chunk, "published_date")
+        if published_date is not None:
+            chunk_dict["published_date"] = published_date
         chunk_dict["uuid"] = str(random_uuid)
         chunks_dicts.append(chunk_dict)
         entities_group_by_chunk.append({"chunk_uuid": chunk_id, "entities": entities_group})
@@ -444,6 +448,24 @@ async def extract_evidence_from_chunk_task(working_state, representative_identif
     return all_evidences
 
 
+def source_date_index(working_state) -> dict:
+    """Map each source URL to its article's publication date, from the chunks.
+
+    The publication date is the cheapest, most universal time signal we have
+    ("observed time" — when a relationship was *asserted*). Threading it through
+    on a single url->date map lets any downstream edge resolve its observed time
+    by URL, without touching each edge-creation site. Last non-empty date per URL
+    wins. Returns ``{url: "YYYY-MM-DD..."}``.
+    """
+    out: dict = {}
+    for chunk in (working_state.get("chunks") or []):
+        url = chunk.get("url")
+        iso = to_iso_date(chunk.get("published_date"))
+        if url and iso:
+            out[url] = iso
+    return out
+
+
 async def node_and_evidence_consolidator(working_state, merged_entities, root, representative_identifiers, fully_connected_graph, hypothesis, investigation_subject):
     """Attach extracted evidence to entities and orient it toward ``root``.
 
@@ -464,6 +486,10 @@ async def node_and_evidence_consolidator(working_state, merged_entities, root, r
     chunk_evidences = await extract_evidence_from_chunk_task(working_state, representative_identifiers, hypothesis, investigation_subject, task_id="test_task")
     chunk_investigations = await investigate_evidences_task(working_state, representative_identifiers, hypothesis, investigation_subject, task_id="test_task")
     chunk_evidences = chunk_evidences + chunk_investigations
+
+    # url -> publication date, so each evidence row can carry the "as reported on"
+    # date of the article it came from (observed-time signal for the temporal layer).
+    source_dates = source_date_index(working_state)
 
     # alias -> canonical (representative) id; first representative wins
     alias_to_canonical: dict = {}
@@ -508,9 +534,10 @@ async def node_and_evidence_consolidator(working_state, merged_entities, root, r
         if is_proved and path and len(path) > 1:
             reasoning = f"Evidence through affiliations {'->'.join(reversed(path))}.\n" + reasoning
             routed_to_root_counter += 1
+        source_url = evidence.get("metadata", {}).get("source", "")
         evidence_node = {
             "identifier": key,
-            "doc_id": evidence.get("metadata", {}).get("source", ""),
+            "doc_id": source_url,
             "reasoning": reasoning,
             "evidence": evidence.get("evidence", []),
             "hypothesis": is_proved,
@@ -519,6 +546,7 @@ async def node_and_evidence_consolidator(working_state, merged_entities, root, r
             "metadata": evidence.get("metadata", {}),
             "related_node": evidence.get("related_node", None),
             "relations": list(node.get("data", {}).get("relations", [])),
+            "published_date": source_dates.get(source_url, ""),
         }
         node.setdefault("evidence", []).append(evidence_node)
         if is_proved:

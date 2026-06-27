@@ -19,6 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from investigator.graph.corroboration import corroborate
+from investigator.graph import to_iso_date
 
 
 def _payload(d: dict) -> dict:
@@ -46,6 +47,41 @@ def _payload(d: dict) -> dict:
             events = [n for n in group if n.get("type") == "event"]
             canonical_nodes.append(events[0] if events else group[0])
 
+    # --- Temporal signal -------------------------------------------------
+    # Two timestamps per element (see docs/data-model.md, temporal layer):
+    #   observedAt/firstSeen = when a relationship was *asserted* (article pub
+    #     date, resolved by URL through the artifact's source_dates index);
+    #   activeWindow = when it was (inferred to be) *true*, from the dated events
+    #     both endpoints take part in.
+    source_dates = d.get("source_dates") or {}
+    event_dates: dict[str, str] = {}
+    for n in canonical_nodes:
+        if (n.get("type") == "event"):
+            iso = to_iso_date((n.get("data") or {}).get("date"))
+            if iso:
+                event_dates[n["identifier"]] = iso
+    events_by_entity: dict[str, set] = defaultdict(set)
+    for e in edges:
+        if e.get("type") == "event_participation":
+            ev = e.get("src_identifier"); ent = e.get("dst_identifier")
+            if ev and ent:
+                events_by_entity[ent].add(ev)
+
+    def _entity_window(ent: str) -> tuple[str, str]:
+        ds = sorted(dt for ev in events_by_entity.get(ent, ()) if (dt := event_dates.get(ev)))
+        return (ds[0], ds[-1]) if ds else ("", "")
+
+    def _edge_first_seen(e: dict, attrs: dict) -> str:
+        urls = []
+        for u in (e.get("search_url"), attrs.get("source_url")):
+            if isinstance(u, str) and u.startswith("http"):
+                urls.append(u)
+        for u in (attrs.get("source_urls") or []):
+            if isinstance(u, str) and u.startswith("http"):
+                urls.append(u)
+        ds = sorted(dt for u in urls if (dt := source_dates.get(u)))
+        return ds[0] if ds else ""
+
     out_nodes = []
     nodes_by_id = {}
     for n in canonical_nodes:
@@ -65,12 +101,19 @@ def _payload(d: dict) -> dict:
                 clean_labels.append(lab)
         _cc = corroborate(n.get("evidence") or [])
         _cc_node = _cc["node"]
+        if (n.get("type") == "event"):
+            _ev_date = event_dates.get(ident, "")
+            first_seen, last_seen = _ev_date, _ev_date
+        else:
+            first_seen, last_seen = _entity_window(ident)
         out_nodes.append({
             "id": ident,
             "label": ident if len(ident) <= 38 else ident[:35] + "…",
             "type": n.get("type") or "entity",
             "runs": runs,
             "isBridge": ident in bridge_set,
+            "firstSeen": first_seen,
+            "lastSeen": last_seen,
             "labels": clean_labels[:6],
             "evidenceCount": int(n.get("evidence_count") or 0),
             "corroboration": _cc_node["tier"],
@@ -119,6 +162,10 @@ def _payload(d: dict) -> dict:
         if pair_key in seen_pairs:
             continue
         seen_pairs.add(pair_key)
+        first_seen = _edge_first_seen(e, attrs)
+        shared_events = events_by_entity.get(s, set()) & events_by_entity.get(t, set())
+        win = sorted(dt for ev in shared_events if (dt := event_dates.get(ev)))
+        active_window = [win[0], win[-1]] if win else None
         out_edges.append({
             "id": f"{len(out_edges)}",
             "source": s,
@@ -129,6 +176,8 @@ def _payload(d: dict) -> dict:
             "context": (rel.get("context") or "").strip()[:400],
             "url": url,
             "publisher": e.get("source") if isinstance(e.get("source"), str) and not (e.get("source") or "").startswith("http") else "",
+            "firstSeen": first_seen,
+            "activeWindow": active_window,
         })
 
     return {

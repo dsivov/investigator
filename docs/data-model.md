@@ -399,3 +399,28 @@ Behaviour *will* shift at the margins (id consolidation changes how records
 merge/dedupe). That's acceptable and intended — but it means no exact-parity
 oracle. Mitigation: small commits, structural smoke assertions, and the
 `master` baseline + Phase-1 tag remain available for A/B if a question arises.
+
+## 5. Temporal layer
+
+Every relationship gets two kinds of time, kept distinct (classic bitemporal
+split). See [pipeline.md](pipeline.md) for where events are dated.
+
+- **Observed time** (`firstSeen`) — *when a fact was asserted*. The earliest
+  article publication date attesting an edge. Cheap and universal: each fetched
+  article carries a `published_date` (GNews RFC-2822, GDELT compact, …), which
+  `graph.dedup.to_iso_date` normalises to `YYYY-MM-DD`. Article URLs are mapped to
+  dates once per run (the artifact's top-level **`source_dates`** index, built in
+  `cross_event_investigation.py`); evidence rows also carry their own
+  `published_date` (`orchestrator.source_date_index`).
+- **Valid time** (`activeWindow`) — *when a fact was true*. For edges, `[start,
+  end]` inferred from the dated **events both endpoints take part in** (`null` if
+  none). LLM-stated relationship intervals are **not** captured yet (deferred).
+
+Both are computed at payload-build time in `build_graph_prototype._payload`:
+edges gain `firstSeen` + `activeWindow`; entity nodes gain `firstSeen`/`lastSeen`
+from their participated events; event nodes expose their own date. These power
+the **as-of reconstruction** documented in
+[ui-api.md](ui-api.md#temporal-as-of-reconstruction). Dates are stored as *sets*
+upstream (never collapsed), leaving room for a later consistency/conflict layer
+(Level 3). Cross-investigation persistence of edge intervals in the cumulative
+KG sidecar (`structured_store`) is the next phase.

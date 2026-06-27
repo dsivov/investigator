@@ -17,6 +17,13 @@
   let minEv = $state(0);
   let layoutName = $state("fcose");
   let filterStatus = $state("");
+  // Temporal "as of" reconstruction: the payload carries firstSeen/activeWindow
+  // per node/edge, so we filter client-side (no relayout) and watch the graph
+  // grow over time. allDates is the sorted day-axis; asOfIdx === allDates.length
+  // means "all" (no temporal filter).
+  let allDates = $state<string[]>([]);
+  let asOfIdx = $state(0);
+  const asOf = $derived(asOfIdx >= allDates.length ? "" : allDates[asOfIdx]);
   // Structural (triangulation-backbone) edges keep the merged graph connected.
   // On by default so the graph reads as one component; toggle off to declutter.
   let showStructural = $state(true);
@@ -35,6 +42,14 @@
       if (destroyed) return;
       graph = g;
       threadsOn = new Set(g.runs);
+      const ds = new Set<string>();
+      for (const n of g.nodes) if (n.firstSeen) ds.add(n.firstSeen);
+      for (const e of g.edges) {
+        if (e.firstSeen) ds.add(e.firstSeen);
+        if (e.activeWindow && e.activeWindow[0]) ds.add(e.activeWindow[0]);
+      }
+      allDates = [...ds].sort();
+      asOfIdx = allDates.length; // start at "all"
       buildCy();
     });
     return () => {
@@ -160,25 +175,66 @@
     runLayout("fcose");
   }
 
+  // Effective "asserted" date of an edge: observed pub date, else inferred
+  // active-window start. "" = undated (always present under an as-of filter).
+  function edgeStart(d: any): string {
+    return d.firstSeen || (d.activeWindow && d.activeWindow[0]) || "";
+  }
+
   function applyFilters() {
     if (!cy) return;
-    let visible = 0;
+    // Base node pass (threads / types / min-articles) + as-of for events.
+    const baseShow = new Map<string, boolean>();
     cy.nodes().forEach((n: any) => {
       const d = n.data();
-      const show =
+      let ok =
         d.runs.some((r: string) => threadsOn.has(r)) &&
         typesOn.has(d.type) &&
         d.evidenceCount >= minEv;
+      if (ok && asOf && d.type === "event" && d.firstSeen && d.firstSeen > asOf) ok = false;
+      baseShow.set(d.id, ok);
+    });
+    // Edge pass: endpoints visible, structural toggle, edge asserted by as-of.
+    const edgeVis = new Map<string, boolean>();
+    cy.edges().forEach((e: any) => {
+      const d = e.data();
+      let ok = !!baseShow.get(d.source) && !!baseShow.get(d.target);
+      if (ok && e.hasClass("structural") && !showStructural) ok = false;
+      if (ok && asOf) {
+        const st = edgeStart(d);
+        if (st && st > asOf) ok = false;
+      }
+      edgeVis.set(e.id(), ok);
+    });
+    // Under an as-of filter, prune entities whose only surviving links are
+    // structural hub edges -- so relationships appear over time rather than
+    // every actor staying wired to the relevance hub.
+    const realDeg = new Set<string>();
+    cy.edges().forEach((e: any) => {
+      if (edgeVis.get(e.id()) && !e.hasClass("structural")) {
+        const d = e.data();
+        realDeg.add(d.source);
+        realDeg.add(d.target);
+      }
+    });
+    let visible = 0;
+    cy.nodes().forEach((n: any) => {
+      const d = n.data();
+      let show = !!baseShow.get(d.id);
+      if (show && asOf && d.type !== "event" && !realDeg.has(d.id)) show = false;
       n.style("display", show ? "element" : "none");
       if (show) visible++;
     });
     cy.edges().forEach((e: any) => {
-      const sVis = e.source().style("display") !== "none";
-      const tVis = e.target().style("display") !== "none";
-      const structuralOk = !e.hasClass("structural") || showStructural;
-      e.style("display", sVis && tVis && structuralOk ? "element" : "none");
+      const vis =
+        edgeVis.get(e.id()) &&
+        e.source().style("display") !== "none" &&
+        e.target().style("display") !== "none";
+      e.style("display", vis ? "element" : "none");
     });
-    filterStatus = `${visible} of ${graph?.nodes.length} nodes visible`;
+    filterStatus =
+      `${visible} of ${graph?.nodes.length} nodes visible` +
+      (asOf ? ` · as of ${asOf}` : "");
   }
 
   function runLayout(name: string) {
@@ -268,6 +324,21 @@
     />
     <span class="mono w-6 text-slate-300">{minEv}</span>
   </div>
+  {#if allDates.length > 1}
+    <span class="text-slate-700">·</span>
+    <div class="flex items-center gap-2">
+      <span class="text-slate-500" title="Reconstruct the graph as it was known by this date">As of</span>
+      <input
+        type="range"
+        min="0"
+        max={allDates.length}
+        bind:value={asOfIdx}
+        oninput={applyFilters}
+        class="accent-sky-500"
+      />
+      <span class="mono text-slate-300 w-20 text-right">{asOf || "all"}</span>
+    </div>
+  {/if}
   <span class="text-slate-700">·</span>
   <div class="flex items-center gap-1">
     <span class="text-slate-500 mr-1">Layout</span>

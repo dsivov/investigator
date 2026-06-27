@@ -52,6 +52,7 @@ from gnews_deep_investigation import (  # noqa: E402
     BASE,
 )
 from enhanced_retrieval import enhanced_retrieve  # noqa: E402
+from investigator.graph import to_iso_date  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +367,20 @@ def main() -> int:
     final = artifacts["per_event_states"][-1].get("response_after_S2") or \
             artifacts["per_event_states"][-1].get("response_after_S1") or {}
     artifacts["final_merged_graph"] = final
+
+    # url -> publication date (ISO), from every fetched article across all events.
+    # Edge.search_url and evidence doc_id are publisher URLs (= real_url), so this
+    # one map lets the payload builder resolve each edge's observed time by URL.
+    source_dates: dict = {}
+    for e in events:
+        for batch in e.get("article_batches", []):
+            for a in (batch or []):
+                url = a.get("real_url")
+                iso = to_iso_date(a.get("published_date"))
+                if url and iso:
+                    source_dates.setdefault(url, iso)
+    artifacts["source_dates"] = source_dates
+    print(f"##   source_dates: {len(source_dates)} dated URLs")
 
     # === Cross-event analytics =============================================
     print(f"\n{'='*72}\nCROSS-EVENT ANALYTICS (server-derived)\n{'='*72}")

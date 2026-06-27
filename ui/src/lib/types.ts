@@ -110,6 +110,8 @@ export interface GraphNode {
   score: number;
   data: Record<string, unknown>;
   evidence?: EvidenceRecord[];
+  firstSeen?: string;
+  lastSeen?: string;
 }
 
 export interface GraphEdge {
@@ -122,6 +124,8 @@ export interface GraphEdge {
   context: string;
   url: string;
   publisher: string;
+  firstSeen?: string;
+  activeWindow?: [string, string] | null;
 }
 
 export interface GraphPayload {

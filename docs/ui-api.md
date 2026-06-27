@@ -248,16 +248,40 @@ directly instead of the prototype's inlined `PAYLOAD` variable.
       "runs": ["huawei_iran_tech", "iran_protest_surveillance"],
       "isBridge": true, "labels": ["TEHRAN", "IRAN INTERNATIONAL"],
       "evidenceCount": 47, "posterior": 0.998, "score": 0.609,
+      "firstSeen": "2024-02-11", "lastSeen": "2025-09-30",
       "data": { "position": null, "location": null, "type": "GPE" } }
   ],
   "edges": [
     { "id": "0", "source": "IRAN", "target": "CHINA",
       "type": "affiliation", "rtype": "partnership",
       "context": "China and Iran are accelerating their move...",
-      "url": "https://cnbc.com/...", "publisher": "CNBC" }
+      "url": "https://cnbc.com/...", "publisher": "CNBC",
+      "firstSeen": "2024-03-02", "activeWindow": ["2024-03-02", "2025-01-15"] }
   ]
 }
 ```
+
+##### Temporal "as of" reconstruction
+
+`GET /graph`, `/key-network`, and `/connect` accept optional query params that
+reconstruct the graph as it was **known by** a date (observed-time semantics):
+
+| Param | Meaning |
+|---|---|
+| `?asOf=YYYY-MM-DD` | Keep only what was asserted on/before this date. |
+| `?from=YYYY-MM-DD&to=YYYY-MM-DD` | Windowed variant (elements active within the window). |
+
+Per node/edge the payload now carries two timestamps (see
+[data-model.md](data-model.md#temporal-layer)): `firstSeen` (observed time — the
+earliest article publication date attesting it) and, for edges, `activeWindow`
+(valid time — `[start, end]` inferred from the dated events both endpoints take
+part in; `null` if none). Events expose their own date as `firstSeen`/`lastSeen`.
+Filtering rules: events dated after the cutoff are dropped (with their
+participation edges); edges are dropped if their earliest asserted date is after
+the cutoff; **undated** edges/entities are kept; entities left with only
+structural hub edges are pruned. Invalid or absent params return the full graph.
+The frontend Graph tab does the same filtering client-side via an **As of**
+slider, so positions stay stable while relationships appear over time.
 
 #### `GET /api/investigations/:id/tmfg` response
 

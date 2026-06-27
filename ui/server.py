@@ -68,6 +68,89 @@ def _graph_payload(path: Path) -> dict:
     return hit
 
 
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _valid_date(s):
+    return s if (isinstance(s, str) and _ISO_DATE_RE.match(s)) else None
+
+
+def _filter_payload_as_of(payload: dict, *, as_of=None, frm=None, to=None) -> dict:
+    """Reconstruct the graph as it was known/true at a date (or within a window).
+
+    Observed-time semantics ("what we'd learned by D", the agreed default): an
+    edge is kept if its earliest observed date (firstSeen) — or, lacking that,
+    its inferred active-window start — is on/before D. **Undated** edges and
+    entities are kept (graceful degradation; we don't hide the backbone for lack
+    of a date). Events dated after D are dropped, taking their participation
+    edges with them. Entities left with no *real* (non-structural) edge are then
+    pruned, so the as-of view shows relationships appearing over time rather than
+    every node wired to the relevance hub. Does not mutate the cached payload.
+    """
+    as_of = _valid_date(as_of); frm = _valid_date(frm); to = _valid_date(to)
+    if not (as_of or frm or to):
+        return payload
+
+    def _point_ok(dstr: str) -> bool:        # a single date (an event's own date)
+        if not dstr:
+            return True                       # undated -> keep
+        if as_of:
+            return dstr <= as_of
+        if frm and dstr < frm:
+            return False
+        if to and dstr > to:
+            return False
+        return True
+
+    def _edge_ok(e: dict) -> bool:
+        fs = e.get("firstSeen") or ""
+        aw = e.get("activeWindow") or None
+        start = fs or (aw[0] if aw else "")
+        if not start:
+            return True                       # undated edge -> keep
+        if as_of:
+            return start <= as_of
+        end = (aw[1] if aw else "") or fs     # window overlap test
+        if to and start > to:
+            return False
+        if frm and end and end < frm:
+            return False
+        return True
+
+    nodes = payload.get("nodes") or []
+    edges = payload.get("edges") or []
+    kept_ids = set()
+    kept_nodes = []
+    for n in nodes:
+        if n.get("type") == "event" and not _point_ok(n.get("firstSeen") or ""):
+            continue
+        kept_nodes.append(n)
+        kept_ids.add(n["id"])
+    kept_edges = [e for e in edges
+                  if e.get("source") in kept_ids and e.get("target") in kept_ids and _edge_ok(e)]
+    # Prune entities whose only surviving links are structural hub edges.
+    real_deg = set()
+    for e in kept_edges:
+        if e.get("structural"):
+            continue
+        real_deg.add(e["source"]); real_deg.add(e["target"])
+    final_ids = {n["id"] for n in kept_nodes
+                 if n.get("type") == "event" or n["id"] in real_deg}
+    final_nodes = [n for n in kept_nodes if n["id"] in final_ids]
+    final_edges = [e for e in kept_edges
+                   if e["source"] in final_ids and e["target"] in final_ids]
+    return {**payload, "nodes": final_nodes, "edges": final_edges}
+
+
+def _as_of_args():
+    """Read asOf / from / to query params (validated ISO dates or None)."""
+    return {
+        "as_of": _valid_date(request.args.get("asOf")),
+        "frm": _valid_date(request.args.get("from")),
+        "to": _valid_date(request.args.get("to")),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Lazy dspy LM for the query-refinement endpoint. Kept separate from the
 # heavy pipeline orchestrator (which we do NOT import here) so the UI server
@@ -1216,7 +1299,7 @@ def get_graph(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    return jsonify(_graph_payload(path))
+    return jsonify(_filter_payload_as_of(_graph_payload(path), **_as_of_args()))
 
 
 def _key_network_seed(graph_payload: dict, tmfg_payload: dict,
@@ -1251,7 +1334,7 @@ def key_network(inv_id):
     path, _ = _resolve_inv(inv_id)
     if not path or not path.exists():
         return _err(404, "investigation_not_found", "No artifact for this id.")
-    gp = _graph_payload(path)
+    gp = _filter_payload_as_of(_graph_payload(path), **_as_of_args())
     try:
         tp = bt._payload(json.loads(path.read_text()))
     except Exception:  # noqa: BLE001 -- themes optional (engine ran without TMFG)
@@ -1290,7 +1373,7 @@ def connect_entities(inv_id):
         k = max(1, min(8, int(body.get("k") or 3)))
     except (TypeError, ValueError):
         k = 3
-    payload = _graph_payload(path)
+    payload = _filter_payload_as_of(_graph_payload(path), **_as_of_args())
     result = connector_subgraph(
         payload["nodes"], payload["edges"], [str(s) for s in selected],
         mode=mode, max_hops=max_hops, k=k,

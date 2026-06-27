@@ -405,6 +405,36 @@ def _parse_iso_date(s: str) -> tuple[int, int, int] | None:
     return (y, mo, da)
 
 
+def to_iso_date(value) -> str:
+    """Normalise a publication-date string to ``YYYY-MM-DD`` (or "" if unparseable).
+
+    Article sources emit dates in several formats: GNews gives RFC-2822
+    ("Wed, 15 May 2024 12:00:00 GMT"), GDELT gives compact "20240515T120000Z",
+    others give ISO already. This collapses all of them to a plain ISO day so the
+    temporal layer can compare them. Time-of-day is dropped (day precision).
+    """
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    # Already-ISO (or ISO-prefixed) date.
+    m = re.search(r"\d{4}-\d{2}-\d{2}", s)
+    if m:
+        return m.group(0)
+    # GDELT compact: YYYYMMDD[THHMMSSZ].
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})", s)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    # RFC-2822 (GNews) and similar.
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        if dt is not None:
+            return dt.date().isoformat()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _dates_compatible(a_dates: list[str], b_dates: list[str], *, window_days: int) -> bool:
     """True iff at least one date on each side is within `window_days` of the
     other. Wildcards (missing day, missing month, empty) match liberally."""
