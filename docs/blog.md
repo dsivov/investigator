@@ -525,6 +525,147 @@ Matching events by an embedding-similarity on their names — not just
 exact strings — collapses those paraphrases back into the single
 incident they describe.
 
+## Beyond Google News: more ways in
+
+The early system had exactly one way to gather material: a Google News
+search. That is a narrow mouth for an OSINT tool — newswires miss
+encyclopedic background, sanctions designations, and the document an
+analyst was actually handed. So the fetch step grew a set of pluggable
+**search sources**, each toggled per-investigation, each flowing through
+the *identical* extract → graph pipeline. A source that isn't configured
+or fails is simply skipped; it never breaks a run.
+
+| Source | Key needed | What it adds |
+|----|----|----|
+| **Wikipedia** | no | Encyclopedic background on the subject. |
+| **GDELT** | no | Global news coverage, broader than Google News. |
+| **OpenSanctions** | yes | Sanctions / PEP / watchlist entries. |
+| **Web search** | no | Generic web results (Programmable Search or DuckDuckGo). |
+
+Two additions matter more than the table suggests. First, you can bring
+**your own documents** — upload PDFs or paste URLs — and they are
+analysed alongside the news fetch, or *on their own*: point the same
+graph machinery at a single case file with the news fetch turned off.
+(That single-document path is exactly what surfaced the
+read-the-body-not-the-headline bug above.)
+
+Second, after a run the system can **enrich** the top company entities
+against external registries: **SEC EDGAR** (US filers, no key) and
+**OpenRegistry** (30 national company registries — beneficial owners,
+officers, shareholders). An extracted `ORG` like a shell company stops
+being just a name in a sentence and gains its real corporate record,
+attached to the node and cited in the report.
+
+## A memory across investigations: the cumulative knowledge base
+
+Each run, on its own, is amnesiac — it sees only the articles fetched for
+*its* queries. But an analyst working a beat runs the system again and
+again, and the valuable context is cumulative: *we have seen this actor
+before, in a different investigation, doing a different thing.* So every
+finished investigation's graph now folds into **one persistent knowledge
+graph** that later runs draw on and that you can query directly from a
+**Knowledge Base** tab.
+
+It is built in-code on **LightRAG** (no separate server) and merges by
+canonical entity name — so the same real-world actor accumulates evidence
+across runs rather than fragmenting into one node per investigation. The
+canonicalizer is deliberately **conservative**: it auto-merges only exact
+and normalized matches (`U.S.` ↔ `US`), and writes the genuinely
+ambiguous pairs (`JAMES COMER` vs `JAMES COMEY` — one letter, two people)
+to a review log rather than guessing. Cross-investigation merges are
+sticky and hard to undo; better to under-merge than to silently fuse two
+people.
+
+<div class="key-finding">
+
+### What the schema drops, a sidecar keeps
+
+LightRAG stores a fixed shape — per node, just `name / type /
+description / source`. Everything else our pipeline computes (belief
+scores, the full evidence list, identifiers, aliases, the
+belief-propagation *impact shift*) would be lost on merge. So a
+**structured sidecar**, keyed by the same canonical names, preserves and
+merges all of it across investigations. The knowledge base answers a
+question over *everything ever seen*, and each entity comes back joined
+to its complete cross-investigation record — not just the one run that
+happened to be open.
+
+</div>
+
+A subtlety that shaped the design: the in-code merge feeds LightRAG a
+*pre-built graph*, not article text, so the store has **no text chunks**
+to retrieve on. Retrieval and synthesis see only the **description
+text**. So we fold the high-signal facts — role, location, identifiers,
+aliases, and the dated timeline — *into* that description. That is what
+lets the knowledge base actually use the structure it stores, rather than
+just display it.
+
+## Putting time back in: the temporal layer
+
+The pipeline always extracted event dates, but the cumulative merge threw
+them away — the global graph knew *who* connected to whom and forgot
+*when*. We rebuilt the merge to carry a **temporal layer** through:
+per-entity **timelines** (the dated events an actor was part of, assembled
+into one chronology with a first/last-seen range) and the **event→event
+ordering edges** (this event followed that one; these two coincided).
+
+The payoff shows up in retrieval. Because the dated timeline is folded
+into each entity's embedded description, the knowledge base can answer
+questions *by time* without the asker naming the entity:
+
+<div class="key-finding">
+
+### Retrieval by timeline
+
+> **Q:** *"Which organization was banned by Germany in 2024?"*  
+> **Q:** *"What entity was subject to an OFAC action in October 2024?"*
+
+Both return **Samidoun** — correctly, and *without the query mentioning
+it* — because its embedded timeline carries the dated German ban and the
+dated US Treasury designation. After re-ingesting the accumulated store,
+the temporal layer held **1,239 dated events**, **901 event-ordering
+edges**, and **824 entities with assembled timelines**. The graph
+remembers not just the network, but its history.
+
+</div>
+
+## The key network: a whole investigation in one skeleton
+
+Themes and bridges each answer a local question. The remaining gap was a
+*global* one: show me, in one view, the connective tissue of the entire
+investigation. Two features close it.
+
+**Connections** lets an analyst pick any set of actors and ask how they
+interconnect — not just the direct edge, but the **hidden** multi-hop
+chains (up to *k* shortest simple paths per pair), surfaced *even when a
+direct link already exists*. The intermediary nodes are ranked by
+betweenness and the central ones flagged as **brokers** — the entities
+that actually bind the selection together.
+
+> Select **Arnon Milchan** and **Shaul Elovitch** in a Netanyahu run.
+> The shortest path is the obvious `Milchan → Netanyahu → Elovitch`. But
+> *hidden* mode also surfaces `… → Bezeq → Elovitch` and `… → Walla!
+> News → Elovitch` — the Case-4000 entities — and flags **Netanyahu** as
+> the broker.
+
+The **Key network** tab is the automatic version: same hidden-path
+machinery, but seeded with the investigation's most relevant nodes (theme
+members ∪ cross-story bridges, no manual selection) and run to surface the
+brokers that stitch the otherwise-isolated themes into a single skeleton.
+
+<div class="key-finding">
+
+### One broker holding it together
+
+On a real Netanyahu run, 21 theme nodes resolve through the key-network
+algorithm to a **single broker** — the **Attorney-General's Office** —
+the entity binding the otherwise-separate clusters into one structure.
+That is the kind of finding the themes view alone never shows: not which
+actors group together, but the one node the whole investigation hinges
+on.
+
+</div>
+
 ## What this is NOT
 
 We're careful about claim language. The system surfaces structural
@@ -544,11 +685,22 @@ co-occurrence and source-attested relationships. It does NOT claim:
 ## What's next
 
 The current system surfaces *who-is-connected-to-whom-across-stories*
-well. The obvious next gaps:
+well, and now remembers across investigations (the cumulative knowledge
+base), carries time through that memory (the temporal layer), and lets an
+analyst pull a whole investigation's skeleton in one view (the key
+network). The obvious next gaps:
 
-- **Better temporal reasoning.** Today we can tell that Event A happened
-  before Event B and they share actors. We don't yet ask the harder
-  question — did A cause B? — in a defensible way.
+- **From timeline to causation.** The temporal layer now tells us that
+  Event A happened before Event B and that they share actors. We still
+  don't ask the harder question — did A *cause* B? — in a defensible way.
+  Ordering is necessary for causation but not sufficient.
+- **Monitoring and impact.** With a persistent graph and per-entity
+  timelines in place, the natural next step is a scheduled sweep that
+  takes the day's top news, extracts its events and actors, intersects
+  them with the global graph, and propagates the **impact** onto
+  connected nodes — pushing cross-story leads as they emerge rather than
+  waiting for a manual run. The temporal layer and the belief-propagation
+  *impact shift* the sidecar already records are exactly what that needs.
 - **Tighter event extraction.** The LLM occasionally extracts a news
   headline as if it were an actor (“FRANCE INTERCEPTS RUSSIAN TANKER…”
   classified as an entity rather than as a description of an event). Two
