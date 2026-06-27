@@ -85,7 +85,12 @@ semhash_model = StaticModel.from_pretrained("minishlab/potion-multilingual-128M"
 
 lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000)
 extraction_lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000)
-dspy.configure(lm=lm, async_max_workers=16)
+# Concurrency of the NER/extraction fan-out. Each worker holds a payload chunk
+# plus a (large) gpt-4.1 response in flight, so this is the main driver of the
+# transient memory spike during Stage-1/2. Lower it on memory-constrained hosts
+# (INVESTIGATOR_ASYNC_WORKERS) to trade throughput for a smaller peak.
+_ASYNC_WORKERS = int(os.environ.get("INVESTIGATOR_ASYNC_WORKERS", "16"))
+dspy.configure(lm=lm, async_max_workers=_ASYNC_WORKERS)
 # Memory cache speeds up repeated identical-prompt calls within one server
 # process; default ON. Set INVESTIGATOR_DISABLE_CACHE=1 to force every LLM call to
 # go to the model -- needed during research runs (e.g. capture_golden) where
