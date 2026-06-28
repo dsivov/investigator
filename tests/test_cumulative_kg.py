@@ -239,6 +239,34 @@ def test_edge_gets_observed_and_valid_time():
     assert e["active_window"] == ["2024-05-10", "2024-09-20"]  # from shared events EV1, EV2
 
 
+async def _merge_with_conflict() -> dict:
+    from investigator.analytics.cumulative_kg import CumulativeKG
+
+    work = Path(tempfile.mkdtemp()) / "kg"
+    kg = CumulativeKG(work)
+    # An event whose two attested dates are a year apart (extraction/source error).
+    graph = {
+        "nodes": [
+            {"identifier": "ALICE", "type": "entity", "data": {"type": "PERSON"}},
+            {"identifier": "MARTIAL LAW DECLARED", "type": "event",
+             "data": {"type": "EVENT", "date": ["2023-12-03", "2024-12-03"]}},
+        ],
+        "edges": [
+            {"src_identifier": "MARTIAL LAW DECLARED", "dst_identifier": "ALICE",
+             "type": "event_participation", "relations": {"type": "participates_in", "context": ""}},
+        ],
+    }
+    await kg.merge_graph(graph, source_id="inv::c")
+    return {"conflicts": kg.temporal_conflicts()}
+
+
+def test_temporal_conflicts_finds_disputed_event():
+    _reset_shared_storage()
+    out = asyncio.run(_merge_with_conflict())
+    evs = out["conflicts"]["events"]
+    assert any(e["id"] == "MARTIAL LAW DECLARED" and e["daysApart"] == 366 for e in evs)
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0

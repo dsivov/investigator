@@ -13,6 +13,26 @@ export interface KbStats {
   canonicals: number;
 }
 
+export interface KbConflicts {
+  events: Array<{
+    id: string;
+    min: string;
+    max: string;
+    daysApart: number;
+    dates: string[];
+    participants: string[];
+    sources: string[];
+    investigations: string[];
+  }>;
+  orderings: Array<{
+    src: string;
+    dst: string;
+    srcDate: string;
+    dstDate: string;
+    daysApart: number;
+  }>;
+}
+
 export interface KbStructured {
   prob?: number | null;
   score?: number | null;
@@ -119,6 +139,13 @@ export interface GraphNode {
   evidence?: EvidenceRecord[];
   firstSeen?: string;
   lastSeen?: string;
+  dateConflict?: DateConflict | null;
+}
+
+export interface DateConflict {
+  min: string;
+  max: string;
+  daysApart: number;
 }
 
 export interface GraphEdge {
@@ -133,6 +160,7 @@ export interface GraphEdge {
   publisher: string;
   firstSeen?: string;
   activeWindow?: [string, string] | null;
+  dateConflict?: (DateConflict & { src?: string; dst?: string; srcDate?: string; dstDate?: string }) | null;
 }
 
 export interface GraphPayload {

@@ -980,6 +980,20 @@ def kb_query():
                     "asOf": as_of})
 
 
+@app.route("/api/kb/conflicts", methods=["GET"])
+def kb_conflicts():
+    """Temporal-consistency scan over the whole cumulative KG: events whose dates
+    disagree, and event orderings that contradict the dates (read-time, no re-run)."""
+    kb = _get_kb()
+    if kb is None:
+        return _err(503, "kb_unavailable",
+                    "No cumulative knowledge base yet. Run investigations with the analytic engine enabled.")
+    try:
+        return jsonify(kb.temporal_conflicts())
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "kb_error", f"Conflict scan failed: {type(e).__name__}: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Integrations: OpenRegistry login (one-time browser OAuth, local/desktop).
 # The Connect flow spawns research/enrichment.py --openregistry-login as a

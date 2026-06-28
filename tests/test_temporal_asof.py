@@ -74,6 +74,22 @@ def test_payload_dates_edges_and_nodes():
     assert aff["activeWindow"] == ["2025-03-02", "2025-03-02"]  # valid: shared event E1
 
 
+def test_payload_flags_date_conflicts():
+    art = _artifact()
+    # give E1 a second date a year off, and an ordering edge that contradicts dates
+    e1 = next(n for n in art["final_merged_graph"]["nodes"] if n["identifier"] == "E1")
+    e1["data"]["date"] = ["2025-03-02", "2024-03-02"]   # ~365d apart -> conflict
+    art["final_merged_graph"]["edges"].append({
+        "src_identifier": "E2", "dst_identifier": "E1", "type": "event_followed_by",
+        "relations": json.dumps({"type": "followed_by", "context": ""}),
+    })  # E2(2025-06) "followed by" E1(2025-03) -> src after dst -> contradiction
+    p = bg._payload(art)
+    e1n = next(n for n in p["nodes"] if n["id"] == "E1")
+    assert e1n["dateConflict"] and e1n["dateConflict"]["daysApart"] >= 365
+    oc = next(e for e in p["edges"] if e["type"] == "event_followed_by")
+    assert oc["dateConflict"] is not None
+
+
 # --- _filter_payload_as_of -------------------------------------------------
 
 def _payload_fixture() -> dict:

@@ -421,8 +421,17 @@ edges gain `firstSeen` + `activeWindow`; entity nodes gain `firstSeen`/`lastSeen
 from their participated events; event nodes expose their own date. These power
 the **as-of reconstruction** documented in
 [ui-api.md](ui-api.md#temporal-as-of-reconstruction). Dates are stored as *sets*
-upstream (never collapsed), leaving room for a later consistency/conflict layer
-(Level 3).
+upstream (never collapsed) — which is what lets the consistency layer below work.
+
+**Consistency / conflict detection (Level 3).** `graph.temporal_consistency` is a
+read-time pass (like `graph.corroboration`) that flags when those date sets
+*disagree*: an event whose dates can't be reconciled within a tolerance (e.g. a
+year-off extraction error), or an `event_followed_by` ordering that contradicts
+the dates. Surfaced per-investigation as a `dateConflict` on event nodes / ordering
+edges in the payload (Graph badge), and across the cumulative KG via
+`cumulative_kg.temporal_conflicts()` → `GET /api/kb/conflicts`. It only *flags*,
+never resolves. Precision-aware (year-only is too coarse to flag); tolerance
+`INVESTIGATOR_DATE_CONFLICT_DAYS` (default 30).
 
 These intervals also persist into the cumulative KG: `structured_store` keeps
 per-edge `observed_dates` (union across investigations) and `active_window`

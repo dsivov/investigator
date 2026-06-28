@@ -15,6 +15,7 @@ import type {
   OpenRegistryStatus,
   EnrichmentPayload,
   KbStats,
+  KbConflicts,
   KbResult,
 } from "./types";
 
@@ -133,6 +134,7 @@ export const api = {
 
   // Cumulative cross-investigation knowledge base (LightRAG).
   kbStats: () => get<KbStats>("/api/kb/stats"),
+  kbConflicts: () => get<KbConflicts>("/api/kb/conflicts"),
   // mode omitted -> backend picks per-endpoint defaults (entities=hybrid, answer=global).
   kbQuery: async (
     query: string,

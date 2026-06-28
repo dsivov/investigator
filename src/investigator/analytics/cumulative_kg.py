@@ -373,6 +373,29 @@ class CumulativeKG:
         active_window), or None. Synchronous -- plain in-memory sidecar data."""
         return self.structured.get_edge(src, dst)
 
+    def temporal_conflicts(self) -> dict:
+        """Read-time scan of the whole sidecar for conflicting dates: events
+        whose date set can't be reconciled, and event->event orderings that
+        contradict the dates. A data-quality view over everything ever merged.
+        Returns ``{"events": [...], "orderings": [...]}`` enriched for display."""
+        from investigator.graph.temporal_consistency import scan as _scan
+        events = self.structured.events
+        event_dates = {eid: (ev.get("dates") or []) for eid, ev in events.items()}
+        res = _scan(event_dates, self.structured.temporal_edges)
+        out_events = []
+        for eid, conflict in res["events"].items():
+            ev = events.get(eid) or {}
+            out_events.append({
+                "id": eid, **conflict,
+                "dates": ev.get("dates") or [],
+                "participants": (ev.get("participants") or [])[:8],
+                "sources": (ev.get("sources") or [])[:8],
+                "investigations": ev.get("investigations") or [],
+            })
+        out_events.sort(key=lambda c: c["daysApart"], reverse=True)
+        res["orderings"].sort(key=lambda c: c["daysApart"], reverse=True)
+        return {"events": out_events, "orderings": res["orderings"]}
+
     # --- coroutines that run ON the background loop -----------------------
 
     async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None,

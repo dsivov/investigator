@@ -130,6 +130,7 @@ See [knowledge-base.md](knowledge-base.md). Requires the analytics engine.
 |---|---|---|
 | `GET`  | `/api/kb/stats`  | `{available, store, entities, edges, canonicals}`. |
 | `POST` | `/api/kb/query`  | Query across all investigations. Body `{query, mode?, synthesize?, asOf?}`. Returns `{answer?, entities[], relationships[]}`; each entity carries its `structured` record (beliefs, evidence, sources, timeline, firstSeen/lastSeen); each relationship carries `firstSeen`/`activeWindow`. `asOf=YYYY-MM-DD` drops relationships not yet asserted by that date. |
+| `GET`  | `/api/kb/conflicts` | Temporal-consistency scan over the whole store (read-time). Returns `{events[], orderings[]}`: events whose date set disagrees beyond tolerance (`{id, min, max, daysApart, dates, participants, sources}`) and `event_followed_by` orderings that contradict the dates (`{src, dst, srcDate, dstDate, daysApart}`). Tunable via `INVESTIGATOR_DATE_CONFLICT_DAYS` (default 30). |
 
 ### Sources & enrichment
 

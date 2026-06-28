@@ -91,6 +91,16 @@ This is the foundation for the monitoring / impact direction (timelines +
 `posterior_delta` are exactly what that needs — see
 [cep-monitoring-discussion.html](cep-monitoring-discussion.html)).
 
+### Timeline conflicts (consistency check)
+
+Because dates are kept as *sets* across runs, `temporal_conflicts()` (→
+`GET /api/kb/conflicts`, surfaced as a **Timeline conflicts** panel on the KB tab)
+flags where they disagree: an event whose dates can't be reconciled within
+tolerance, or an ordering that contradicts the dates. A disagreement usually means
+sources conflict, an extraction erred, or two real-world things were merged into
+one canonical — a data-quality lead, not a resolution. See
+[data-model.md](data-model.md#5-temporal-layer).
+
 ## Querying — the Knowledge Base tab
 
 `POST /api/kb/query {query, mode?, synthesize?}` returns, for a question asked

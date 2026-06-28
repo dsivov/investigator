@@ -24,6 +24,10 @@
   let allDates = $state<string[]>([]);
   let asOfIdx = $state(0);
   const asOf = $derived(asOfIdx >= allDates.length ? "" : allDates[asOfIdx]);
+  const conflictCount = $derived(
+    (graph?.nodes.filter((n) => n.dateConflict).length || 0) +
+      (graph?.edges.filter((e) => e.dateConflict).length || 0),
+  );
   // Structural (triangulation-backbone) edges keep the merged graph connected.
   // On by default so the graph reads as one component; toggle off to declutter.
   let showStructural = $state(true);
@@ -358,6 +362,12 @@
     class="px-2 py-1 rounded border border-slate-700 hover:bg-slate-800 text-slate-300"
     onclick={() => cy?.fit(undefined, 40)}
   >Fit</button>
+  {#if conflictCount > 0}
+    <span class="rounded border border-amber-700/50 bg-amber-900/20 px-2 py-1 text-amber-200"
+      title="Events/orderings whose dates disagree by more than the tolerance — open them for detail">
+      ⚠ {conflictCount} date conflict{conflictCount === 1 ? "" : "s"}
+    </span>
+  {/if}
   <div class="ml-auto text-slate-400 mono">{filterStatus}</div>
 </div>
 
@@ -408,6 +418,13 @@
           {#each selected.labels as l, i}
             <span class="mono text-slate-300">{l}</span>{#if i < selected.labels.length - 1} · {/if}
           {/each}
+        </div>
+      {/if}
+      {#if selected.dateConflict}
+        <div class="mt-2 rounded border border-amber-700/50 bg-amber-900/20 px-2 py-1 text-xs text-amber-200">
+          ⚠ Dates disputed: <span class="mono">{selected.dateConflict.min}</span> vs
+          <span class="mono">{selected.dateConflict.max}</span>
+          ({selected.dateConflict.daysApart}d apart) — sources disagree, or two events merged.
         </div>
       {/if}
 

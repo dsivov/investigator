@@ -1,8 +1,10 @@
 <script lang="ts">
   import { api } from "../lib/api";
-  import type { KbStats, KbResult } from "../lib/types";
+  import type { KbStats, KbResult, KbConflicts } from "../lib/types";
 
   let stats = $state<KbStats | null>(null);
+  let conflicts = $state<KbConflicts | null>(null);
+  let showConflicts = $state(false);
   let query = $state("");
   let synthesize = $state(true);
   let asOf = $state("");
@@ -29,6 +31,11 @@
   }
 
   api.kbStats().then((s) => (stats = s)).catch(() => {});
+  api.kbConflicts().then((c) => (conflicts = c)).catch(() => {});
+
+  const conflictCount = $derived(
+    (conflicts?.events.length || 0) + (conflicts?.orderings.length || 0),
+  );
 
   async function run() {
     if (!query.trim() || loading) return;
@@ -68,6 +75,52 @@
       Ask about anything seen across every investigation. Answers and entities are drawn from the
       cumulative cross-investigation graph.
     </p>
+
+    {#if conflictCount > 0}
+      <div class="mb-5 rounded-lg border border-amber-700/40 bg-amber-900/15">
+        <button class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-amber-200 text-left"
+          onclick={() => (showConflicts = !showConflicts)}>
+          <span class="text-amber-400">{showConflicts ? "▾" : "▸"}</span>
+          ⚠ Timeline conflicts ({conflictCount})
+          <span class="text-amber-200/60 text-xs font-normal ml-1">dates that disagree across sources/runs — possible errors or merged entities</span>
+        </button>
+        {#if showConflicts && conflicts}
+          <div class="px-4 pb-3 space-y-3 text-xs">
+            {#if conflicts.events.length}
+              <div>
+                <div class="text-amber-200/70 uppercase tracking-wider mb-1">Disputed event dates ({conflicts.events.length})</div>
+                <ul class="space-y-1.5">
+                  {#each conflicts.events.slice(0, 20) as c}
+                    <li class="text-slate-300">
+                      <span class="text-slate-200">{c.id}</span>
+                      <span class="mono text-amber-300/90 ml-1">{c.min} … {c.max}</span>
+                      <span class="text-slate-500">({c.daysApart}d)</span>
+                      {#if c.dates.length}<span class="text-slate-600 mono"> · {c.dates.join(", ")}</span>{/if}
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            {#if conflicts.orderings.length}
+              <div>
+                <div class="text-amber-200/70 uppercase tracking-wider mb-1">Contradictory orderings ({conflicts.orderings.length})</div>
+                <ul class="space-y-1.5">
+                  {#each conflicts.orderings.slice(0, 20) as o}
+                    <li class="text-slate-300">
+                      <span class="text-slate-200">{o.src}</span>
+                      <span class="text-slate-500 mono">→follows→</span>
+                      <span class="text-slate-200">{o.dst}</span>
+                      <span class="mono text-amber-300/90 ml-1">but {o.srcDate} &gt; {o.dstDate}</span>
+                      <span class="text-slate-500">({o.daysApart}d)</span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     {#if stats && !stats.available}
       <div class="rounded-lg border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200">

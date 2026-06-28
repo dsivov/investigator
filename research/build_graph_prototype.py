@@ -20,6 +20,8 @@ from pathlib import Path
 
 from investigator.graph.corroboration import corroborate
 from investigator.graph import to_iso_date
+from investigator.graph.temporal_consistency import scan as _scan_conflicts
+from investigator.analytics.structured_store import _dates
 
 
 def _payload(d: dict) -> dict:
@@ -55,17 +57,25 @@ def _payload(d: dict) -> dict:
     #     both endpoints take part in.
     source_dates = d.get("source_dates") or {}
     event_dates: dict[str, str] = {}
+    event_date_sets: dict[str, list] = {}   # full date SET per event (for conflict detection)
     for n in canonical_nodes:
         if (n.get("type") == "event"):
-            iso = to_iso_date((n.get("data") or {}).get("date"))
-            if iso:
-                event_dates[n["identifier"]] = iso
+            ds = _dates((n.get("data") or {}).get("date"))
+            if ds:
+                event_dates[n["identifier"]] = ds[0]
+                event_date_sets[n["identifier"]] = ds
     events_by_entity: dict[str, set] = defaultdict(set)
     for e in edges:
         if e.get("type") == "event_participation":
             ev = e.get("src_identifier"); ent = e.get("dst_identifier")
             if ev and ent:
                 events_by_entity[ent].add(ev)
+
+    # Level 3: temporal consistency -- flag events whose date set can't be
+    # reconciled, and event_followed_by edges that contradict the dates.
+    _conflicts = _scan_conflicts(event_date_sets, edges)
+    _event_conflict = _conflicts["events"]
+    _ordering_conflict = {(c["src"], c["dst"]): c for c in _conflicts["orderings"]}
 
     def _entity_window(ent: str) -> tuple[str, str]:
         ds = sorted(dt for ev in events_by_entity.get(ent, ()) if (dt := event_dates.get(ev)))
@@ -114,6 +124,7 @@ def _payload(d: dict) -> dict:
             "isBridge": ident in bridge_set,
             "firstSeen": first_seen,
             "lastSeen": last_seen,
+            "dateConflict": _event_conflict.get(ident),
             "labels": clean_labels[:6],
             "evidenceCount": int(n.get("evidence_count") or 0),
             "corroboration": _cc_node["tier"],
@@ -178,6 +189,7 @@ def _payload(d: dict) -> dict:
             "publisher": e.get("source") if isinstance(e.get("source"), str) and not (e.get("source") or "").startswith("http") else "",
             "firstSeen": first_seen,
             "activeWindow": active_window,
+            "dateConflict": _ordering_conflict.get((s, t)) if etype == "event_followed_by" else None,
         })
 
     return {
