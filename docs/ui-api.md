@@ -132,6 +132,18 @@ See [knowledge-base.md](knowledge-base.md). Requires the analytics engine.
 | `POST` | `/api/kb/query`  | Query across all investigations. Body `{query, mode?, synthesize?, asOf?}`. Returns `{answer?, entities[], relationships[]}`; each entity carries its `structured` record (beliefs, evidence, sources, timeline, firstSeen/lastSeen); each relationship carries `firstSeen`/`activeWindow`. `asOf=YYYY-MM-DD` drops relationships not yet asserted by that date. |
 | `GET`  | `/api/kb/conflicts` | Temporal-consistency scan over the whole store (read-time). Returns `{events[], orderings[]}`: events whose date set disagrees beyond tolerance (`{id, min, max, daysApart, dates, participants, sources}`) and `event_followed_by` orderings that contradict the dates (`{src, dst, srcDate, dstDate, daysApart}`). Tunable via `INVESTIGATOR_DATE_CONFLICT_DAYS` (default 30). |
 
+### Standing monitor (CEP / impact digest)
+
+See [monitoring.md](monitoring.md). The engine must be running for `run`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/api/monitor/watchlist` | `{entities, domain}` — the watched canonical entities. |
+| `POST` | `/api/monitor/watchlist` | Edit it. Body `{add?: [], remove?: [], domain?}`. Returns the updated watchlist. |
+| `POST` | `/api/monitor/run` | Trigger a run as a background subprocess. Body `{k?, period?}`. Returns `{running, message}`; poll the digests list for the result. |
+| `GET`  | `/api/monitor/digests` | `{dates: [...], running}` — available digest dates + whether a run is in progress. |
+| `GET`  | `/api/monitor/digests/:date` | One dated digest: `{date, watchlist, events[], alerts[], counts, intake}`; each event carries `topScore`, `touched`, `watched`, `impacted[{entity, delta, hops, isBroker, watched, score}]`, `alert`. |
+
 ### Sources & enrichment
 
 See [sources.md](sources.md).

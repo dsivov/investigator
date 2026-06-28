@@ -62,6 +62,10 @@
         onclick={() => navigate("#/knowledge")}>Knowledge base</button
       >
       <button
+        class="nav-link {route.name === 'monitor' ? 'active' : ''}"
+        onclick={() => navigate("#/monitor")}>Monitor</button
+      >
+      <button
         class="nav-link {route.name === 'settings' ? 'active' : ''}"
         onclick={() => navigate("#/settings")}>Settings</button
       >

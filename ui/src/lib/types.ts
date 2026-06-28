@@ -13,6 +13,41 @@ export interface KbStats {
   canonicals: number;
 }
 
+export interface MonitorWatchlist {
+  entities: string[];
+  domain: string;
+}
+
+export interface MonitorImpacted {
+  entity: string;
+  delta: number;
+  hops: number;
+  isBroker: boolean;
+  watched: boolean;
+  score: number;
+}
+
+export interface MonitorEvent {
+  event: { id: string; date: string; type: string; description: string };
+  touched: string[];
+  watched: string[];
+  topScore: number;
+  usedBP: boolean;
+  dateConflict: { min: string; max: string; daysApart: number } | null;
+  impacted: MonitorImpacted[];
+  alert: boolean;
+}
+
+export interface MonitorDigest {
+  date: string;
+  watchlist: MonitorWatchlist;
+  alertThreshold: number;
+  events: MonitorEvent[];
+  alerts: MonitorEvent[];
+  counts: { events: number; alerts: number };
+  intake?: { subjects: string[]; articles: number; extractedNodes: number; intersectedEvents: number };
+}
+
 export interface KbConflicts {
   events: Array<{
     id: string;

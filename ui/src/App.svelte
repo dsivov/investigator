@@ -5,6 +5,7 @@
   import NewInvestigation from "./components/NewInvestigation.svelte";
   import Settings from "./components/Settings.svelte";
   import KnowledgeBase from "./components/KnowledgeBase.svelte";
+  import Monitor from "./components/Monitor.svelte";
   import Placeholder from "./components/Placeholder.svelte";
   import { currentRoute } from "./lib/router.svelte";
 
@@ -27,6 +28,8 @@
     <Settings />
   {:else if route.name === "knowledge"}
     <KnowledgeBase />
+  {:else if route.name === "monitor"}
+    <Monitor />
   {:else}
     <Placeholder title="Not found" body="Unknown route." />
   {/if}

@@ -19,6 +19,7 @@ quick start. The documents here go deeper.
 | [data-model.md](data-model.md) | Entity / event / edge records, the cumulative-KG stores, and what each field means. |
 | [knowledge-base.md](knowledge-base.md) | The cumulative cross-investigation KG: in-code LightRAG, canonicalization, the structured + temporal sidecar, retrieval, and the Knowledge Base tab. |
 | [analysis.md](analysis.md) | Interactive analysis: Connections (shortest-path / hidden / brokers), the automatic Key network, and multi-source corroboration. |
+| [monitoring.md](monitoring.md) | The standing monitor (CEP / impact digest): watchlist, daily intake, intersection, the local-TMFG belief-propagation impact model, and the Monitor tab. |
 | [sources.md](sources.md) | Configurable search sources (Wikipedia / GDELT / OpenSanctions / web) and entity enrichment (SEC EDGAR / OpenRegistry). |
 | [ui-api.md](ui-api.md) | REST + SSE contract between the frontend and the UI backend. |
 | [operations.md](operations.md) | Running locally, environment variables, memory / OOM tuning, and troubleshooting. |

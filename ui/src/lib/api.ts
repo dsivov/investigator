@@ -17,6 +17,8 @@ import type {
   KbStats,
   KbConflicts,
   KbResult,
+  MonitorWatchlist,
+  MonitorDigest,
 } from "./types";
 
 async function post<T>(path: string): Promise<T> {
@@ -135,6 +137,31 @@ export const api = {
   // Cumulative cross-investigation knowledge base (LightRAG).
   kbStats: () => get<KbStats>("/api/kb/stats"),
   kbConflicts: () => get<KbConflicts>("/api/kb/conflicts"),
+
+  // Standing monitor (CEP): watchlist, on-demand run, dated impact digests.
+  monitorWatchlist: () => get<MonitorWatchlist>("/api/monitor/watchlist"),
+  monitorEditWatchlist: async (
+    body: { add?: string[]; remove?: string[]; domain?: string },
+  ): Promise<MonitorWatchlist> => {
+    const r = await fetch("/api/monitor/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})) as any)?.message || `HTTP ${r.status}`);
+    return r.json();
+  },
+  monitorRun: async (k = 8, period = "1d"): Promise<{ running: boolean; message: string }> => {
+    const r = await fetch("/api/monitor/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ k, period }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})) as any)?.message || `HTTP ${r.status}`);
+    return r.json();
+  },
+  monitorDigests: () => get<{ dates: string[]; running: boolean }>("/api/monitor/digests"),
+  monitorDigest: (date: string) => get<MonitorDigest>(`/api/monitor/digests/${date}`),
   // mode omitted -> backend picks per-endpoint defaults (entities=hybrid, answer=global).
   kbQuery: async (
     query: string,

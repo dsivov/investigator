@@ -995,6 +995,68 @@ def kb_conflicts():
 
 
 # ---------------------------------------------------------------------------
+# Standing monitor (CEP): watchlist, on-demand run, dated impact digests.
+# ---------------------------------------------------------------------------
+
+_MONITOR_PROC: subprocess.Popen | None = None
+
+
+@app.route("/api/monitor/watchlist", methods=["GET", "POST"])
+def monitor_watchlist():
+    from investigator.monitor.watchlist import load_watchlist
+    wl = load_watchlist()
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        for n in (body.get("add") or []):
+            wl.add(n)
+        for n in (body.get("remove") or []):
+            wl.remove(n)
+        if "domain" in body:
+            wl.domain = str(body.get("domain") or "")
+        wl.save()
+    return jsonify(wl.to_dict())
+
+
+@app.route("/api/monitor/run", methods=["POST"])
+def monitor_run():
+    """Trigger a monitor run as a subprocess (it fetches news + extracts, so it's
+    slow). The UI polls the digests list for the result."""
+    global _MONITOR_PROC
+    if _MONITOR_PROC is not None and _MONITOR_PROC.poll() is None:
+        return jsonify({"running": True, "message": "A monitor run is already in progress."})
+    body = request.get_json(silent=True) or {}
+    try:
+        k = max(1, min(20, int(body.get("k") or 8)))
+    except (TypeError, ValueError):
+        k = 8
+    period = str(body.get("period") or "1d")
+    cmd = [sys.executable, "-u", "-m", "investigator.monitor", "--once",
+           "--k", str(k), "--period", period]
+    env = {**os.environ, "PYTHONPATH": f"{REPO}{os.pathsep}{REPO / 'src'}", "PYTHONUNBUFFERED": "1"}
+    log = (ARTIFACTS_DIR.parent / "jobs" / "monitor.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    _MONITOR_PROC = subprocess.Popen(
+        cmd, cwd=str(REPO), env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
+    return jsonify({"running": True, "message": f"Monitor run started (top {k} news, {period})."})
+
+
+@app.route("/api/monitor/digests", methods=["GET"])
+def monitor_digests():
+    from investigator.monitor.digest import list_digests
+    running = _MONITOR_PROC is not None and _MONITOR_PROC.poll() is None
+    return jsonify({"dates": list_digests(), "running": running})
+
+
+@app.route("/api/monitor/digests/<date>", methods=["GET"])
+def monitor_digest(date):
+    from investigator.monitor.digest import load_digest
+    d = load_digest(date)
+    if d is None:
+        return _err(404, "digest_not_found", f"No digest for {date}.")
+    return jsonify(d)
+
+
+# ---------------------------------------------------------------------------
 # Integrations: OpenRegistry login (one-time browser OAuth, local/desktop).
 # The Connect flow spawns research/enrichment.py --openregistry-login as a
 # subprocess; it opens the user's browser and catches the OAuth callback on

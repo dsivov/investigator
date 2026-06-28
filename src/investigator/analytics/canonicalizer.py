@@ -129,6 +129,21 @@ class CanonicalRegistry:
                 + "\n"
             )
 
+    def lookup(self, name: str) -> str | None:
+        """Match-only: return the existing canonical for ``name`` (exact or
+        normalized), or None -- WITHOUT registering anything. Used by the monitor's
+        intersection filter so noisy daily actors don't pollute the registry
+        (``resolve`` always mints on a miss). Fuzzy is intentionally not consulted
+        (sticky-fusion risk + cost)."""
+        name = (name or "").strip()
+        if not name:
+            return None
+        c = self.alias_index.get(name.upper())
+        if c:
+            return c
+        nk = _norm_key(name)
+        return self.norm_index.get(nk) if nk else None
+
     def resolve(self, name: str, entity_type=None, source=None) -> str:
         """Map a surface form to its global canonical, auto-merging only safe
         (exact/normalized) matches and flagging fuzzy ones for review."""
