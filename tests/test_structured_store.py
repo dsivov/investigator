@@ -85,6 +85,38 @@ def test_edge_undirected_merge():
     assert set(e["investigations"]) == {"inv::a", "inv::b"}
 
 
+def test_edge_temporal_intervals_merge():
+    ss = StructuredStore(tempfile.mktemp())
+    ss.merge_edge("A", "B", {"relations": {"type": "knows", "context": "x"}}, "inv::a",
+                  observed_dates=["2024-05-01"], active_window=["2024-05-01", "2024-08-01"])
+    ss.merge_edge("B", "A", {"relations": {"type": "knows", "context": "x"}}, "inv::b",
+                  observed_dates=["2024-03-15", "2024-05-01"], active_window=["2024-09-10", "2024-12-01"])
+    e = ss.edges[next(iter(ss.edges))]
+    # observed dates: deduped union, sorted (a SET across runs for Level-3 later)
+    assert e["observed_dates"] == ["2024-03-15", "2024-05-01"]
+    # active window: global min..max across both runs' shared-event spans
+    assert e["active_window"] == ["2024-05-01", "2024-12-01"]
+
+
+def test_edge_temporal_roundtrip():
+    p = tempfile.mktemp()
+    ss = StructuredStore(p)
+    ss.merge_edge("A", "B", {"relations": {"type": "knows", "context": "x"}}, "inv::a",
+                  observed_dates=["2024-05-01"], active_window=["2024-05-01", "2024-08-01"])
+    ss.save()
+    ss2 = StructuredStore(p)
+    e = ss2.get_edge("A", "B")
+    assert e["observed_dates"] == ["2024-05-01"]
+    assert e["active_window"] == ["2024-05-01", "2024-08-01"]
+
+
+def test_edge_no_temporal_args_is_safe():
+    ss = StructuredStore(tempfile.mktemp())
+    ss.merge_edge("A", "B", {"relations": {"type": "knows", "context": "x"}}, "inv::a")
+    e = ss.get_edge("A", "B")
+    assert e["observed_dates"] == [] and e["active_window"] is None
+
+
 def test_save_load_roundtrip():
     p = Path(tempfile.mktemp())
     ss = StructuredStore(p)

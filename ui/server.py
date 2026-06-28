@@ -959,12 +959,25 @@ def kb_query():
                 "lastSeen": dated[-1] if dated else None,
             }
         entities.append(ent)
-    relationships = [
-        {"src": r.get("src_id"), "dst": r.get("tgt_id"), "description": r.get("description")}
-        for r in (d.get("relationships") or [])
-    ]
+    as_of = _valid_date(body.get("asOf"))
+    relationships = []
+    for r in (d.get("relationships") or []):
+        src, dst = r.get("src_id"), r.get("tgt_id")
+        rel = {"src": src, "dst": dst, "description": r.get("description")}
+        erec = kb.structured_edge(src, dst) if (src and dst) else None
+        if erec:
+            obs = erec.get("observed_dates") or []
+            win = erec.get("active_window") or None
+            rel["firstSeen"] = obs[0] if obs else ""
+            rel["activeWindow"] = win
+            if as_of:
+                start = (obs[0] if obs else "") or (win[0] if win else "")
+                if start and start > as_of:
+                    continue  # not yet asserted as of this date
+        relationships.append(rel)
     return jsonify({"query": text, "dataMode": data_mode, "answerMode": answer_mode,
-                    "answer": answer, "entities": entities, "relationships": relationships})
+                    "answer": answer, "entities": entities, "relationships": relationships,
+                    "asOf": as_of})
 
 
 # ---------------------------------------------------------------------------

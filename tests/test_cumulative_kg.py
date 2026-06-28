@@ -198,6 +198,47 @@ def test_event_nodes_and_their_edges_excluded():
     assert out["res"]["edges_merged"] == 1, out["res"]
 
 
+async def _merge_with_temporal() -> dict:
+    from investigator.analytics.cumulative_kg import CumulativeKG
+
+    work = Path(tempfile.mkdtemp()) / "kg"
+    kg = CumulativeKG(work)
+    graph = {
+        "nodes": [
+            {"identifier": "ALICE", "type": "entity", "data": {"type": "PERSON"}},
+            {"identifier": "GLOBEX", "type": "entity", "data": {"type": "ORG"}},
+            {"identifier": "EV1", "type": "event", "data": {"type": "EVENT", "date": "2024-05-10"}},
+            {"identifier": "EV2", "type": "event", "data": {"type": "EVENT", "date": "2024-09-20"}},
+        ],
+        "edges": [
+            {"src_identifier": "ALICE", "dst_identifier": "GLOBEX", "type": "affiliation",
+             "weight": 1.0, "relations": {"type": "works_at", "context": ""},
+             "search_url": "https://news.test/a"},
+            # ALICE + GLOBEX both participate in EV1 and EV2 -> active window spans both.
+            {"src_identifier": "EV1", "dst_identifier": "ALICE", "type": "event_participation",
+             "relations": {"type": "participates_in", "context": ""}},
+            {"src_identifier": "EV1", "dst_identifier": "GLOBEX", "type": "event_participation",
+             "relations": {"type": "participates_in", "context": ""}},
+            {"src_identifier": "EV2", "dst_identifier": "ALICE", "type": "event_participation",
+             "relations": {"type": "participates_in", "context": ""}},
+            {"src_identifier": "EV2", "dst_identifier": "GLOBEX", "type": "event_participation",
+             "relations": {"type": "participates_in", "context": ""}},
+        ],
+    }
+    await kg.merge_graph(graph, source_id="inv::t",
+                         source_dates={"https://news.test/a": "2024-03-01"})
+    return {"edge": kg.structured_edge("ALICE", "GLOBEX")}
+
+
+def test_edge_gets_observed_and_valid_time():
+    _reset_shared_storage()
+    out = asyncio.run(_merge_with_temporal())
+    e = out["edge"]
+    assert e is not None
+    assert e["observed_dates"] == ["2024-03-01"]              # from source_dates (pub date)
+    assert e["active_window"] == ["2024-05-10", "2024-09-20"]  # from shared events EV1, EV2
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0

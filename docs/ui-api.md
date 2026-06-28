@@ -129,7 +129,7 @@ See [knowledge-base.md](knowledge-base.md). Requires the analytics engine.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET`  | `/api/kb/stats`  | `{available, store, entities, edges, canonicals}`. |
-| `POST` | `/api/kb/query`  | Query across all investigations. Body `{query, mode?, synthesize?}`. Returns `{answer?, entities[], relationships[]}`; each entity carries its `structured` record (beliefs, evidence, sources, timeline, firstSeen/lastSeen). |
+| `POST` | `/api/kb/query`  | Query across all investigations. Body `{query, mode?, synthesize?, asOf?}`. Returns `{answer?, entities[], relationships[]}`; each entity carries its `structured` record (beliefs, evidence, sources, timeline, firstSeen/lastSeen); each relationship carries `firstSeen`/`activeWindow`. `asOf=YYYY-MM-DD` drops relationships not yet asserted by that date. |
 
 ### Sources & enrichment
 

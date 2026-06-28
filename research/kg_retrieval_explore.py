@@ -108,9 +108,11 @@ def _top_entity_names(data: dict, k: int = 6) -> list[str]:
 
 async def ingest(kg: CumulativeKG, artifacts: list[Path]) -> None:
     for p in artifacts:
-        graph = json.loads(p.read_text())["final_merged_graph"]
+        art = json.loads(p.read_text())
+        graph = art["final_merged_graph"]
         source_id = f"inv::{_TS.sub('', p.stem)}"
-        summary = await kg.merge_graph(graph, source_id=source_id, file_path=p.name)
+        summary = await kg.merge_graph(graph, source_id=source_id, file_path=p.name,
+                                       source_dates=art.get("source_dates"))
         print(f"  + {source_id:60} nodes={summary['nodes_merged']:>4} edges={summary['edges_merged']:>4}")
 
 

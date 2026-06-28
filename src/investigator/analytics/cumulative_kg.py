@@ -43,7 +43,7 @@ from lightrag.operate import merge_nodes_and_edges
 from lightrag.utils import EmbeddingFunc
 
 from investigator.analytics.canonicalizer import CanonicalRegistry, resolve_graph_entities
-from investigator.analytics.structured_store import StructuredStore
+from investigator.analytics.structured_store import StructuredStore, _dates
 from investigator.graph.dedup import _wl
 from investigator.logging import get_logger
 
@@ -126,6 +126,12 @@ def _entity_description(node: dict) -> str:
             break
     if tl:
         parts.append("Timeline: " + "; ".join(tl) + ".")
+    # Active period (so "who was active in 2024" style queries retrieve it).
+    span = sorted(d for te in (d.get("timeline_events") or []) if isinstance(te, dict)
+                  for d in _dates(te.get("date")))
+    if span:
+        parts.append(f"Active period: {span[0]} to {span[-1]}."
+                     if span[0] != span[-1] else f"Active: {span[0]}.")
     # The entity's own evidence -- the actual claims about it (the substance).
     seen = set()
     claims = []
@@ -145,6 +151,19 @@ def _entity_description(node: dict) -> str:
     if claims:
         parts.append("Reported: " + " ".join(claims))
     return " ".join(parts)
+
+
+def _event_dates(event_node: dict) -> list[str]:
+    """ISO dates carried by an event node (data.date may be str or list)."""
+    return _dates((event_node.get("data") or {}).get("date"))
+
+
+def _edge_urls(edge: dict) -> list[str]:
+    """Every source URL an edge cites (single + causal-edge list), http only."""
+    attrs = edge.get("attributes") or {}
+    cands = [edge.get("search_url"), edge.get("source"), attrs.get("source_url")]
+    cands += list(attrs.get("source_urls") or [])
+    return [u for u in cands if isinstance(u, str) and u.startswith("http")]
 
 
 def _edge_relation(edge: dict) -> tuple[str, str]:
@@ -305,14 +324,16 @@ class CumulativeKG:
             )
         return [(maybe_nodes, maybe_edges)]
 
-    async def merge_graph(self, final_graph: dict, source_id: str, file_path: str | None = None) -> dict:
+    async def merge_graph(self, final_graph: dict, source_id: str, file_path: str | None = None,
+                          source_dates: dict | None = None) -> dict:
         """Canonicalize then merge one investigation graph into the cumulative KG.
 
         Dispatches onto the background loop; awaitable on the caller's loop.
+        ``source_dates`` (url -> ISO pub date) lets edges carry observed time.
         Returns a small summary dict (node/edge counts merged + registry stats).
         """
         return await asyncio.wrap_future(
-            self._submit(self._merge_graph(final_graph, source_id, file_path))
+            self._submit(self._merge_graph(final_graph, source_id, file_path, source_dates))
         )
 
     async def get_node(self, name: str) -> dict | None:
@@ -347,15 +368,21 @@ class CumulativeKG:
         """An actor's merged chronology (timeline_events + participated events)."""
         return self.structured.entity_timeline(name)
 
+    def structured_edge(self, src: str, dst: str):
+        """Full structured record for a canonical edge (incl. observed_dates /
+        active_window), or None. Synchronous -- plain in-memory sidecar data."""
+        return self.structured.get_edge(src, dst)
+
     # --- coroutines that run ON the background loop -----------------------
 
-    async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None) -> dict:
+    async def _merge_graph(self, final_graph: dict, source_id: str, file_path: str | None,
+                           source_dates: dict | None = None) -> dict:
         await self._initialize()
         file_path = file_path or source_id
         mapping = resolve_graph_entities(final_graph, self.registry, source_id)
         # Preserve ALL structured node/edge properties (lost by LightRAG's fixed
         # schema) in the sidecar store, keyed by the SAME canonical names.
-        self._merge_structured(final_graph, source_id, mapping)
+        self._merge_structured(final_graph, source_id, mapping, source_dates)
         chunk_results = self._graph_to_chunk_results(final_graph, source_id, file_path, mapping)
         n_nodes = len(chunk_results[0][0])
         n_edges = len(chunk_results[0][1])
@@ -407,12 +434,16 @@ class CumulativeKG:
             "canonicals": len(self.registry.canonicals),
         }
 
-    def _merge_structured(self, final_graph: dict, source_id: str, mapping: dict) -> None:
+    def _merge_structured(self, final_graph: dict, source_id: str, mapping: dict,
+                          source_dates: dict | None = None) -> None:
         """Feed every non-event node + relationship edge into the sidecar store,
         canonicalised to match the KG's entity names. Also preserves the temporal
         layer LightRAG drops: per-actor timelines, dated events with their
-        (canonical) participants, and event->event ordering edges."""
+        (canonical) participants, event->event ordering edges, and per-edge time
+        intervals (observed time from article pub dates, valid time from shared
+        dated events)."""
         nodes, edges = final_graph["nodes"], final_graph["edges"]
+        source_dates = source_dates or {}
         event_nodes = {n["identifier"]: n for n in nodes
                        if (n.get("node_type") or n.get("type")) == "event"}
         event_ids = set(event_nodes)
@@ -430,6 +461,13 @@ class CumulativeKG:
                     participants.setdefault(ev, []).append(mapping.get(actor, actor))
         for ev_id, en in event_nodes.items():
             self.structured.merge_event(ev_id, en, participants.get(ev_id, []), source_id)
+        # Valid-time index: for each canonical actor, the dates of events it was in,
+        # so a relationship's active window = the dates of events BOTH endpoints share.
+        event_dates = {ev_id: _event_dates(en) for ev_id, en in event_nodes.items()}
+        events_by_actor: dict[str, set] = {}
+        for ev_id, acts in participants.items():
+            for a in acts:
+                events_by_actor.setdefault(a, set()).add(ev_id)
         for e in edges:
             src, dst = e.get("src_identifier"), e.get("dst_identifier")
             etype = e.get("type")
@@ -440,7 +478,12 @@ class CumulativeKG:
                 continue
             cs, cd = mapping.get(src, src), mapping.get(dst, dst)
             if cs and cd and cs != cd:
-                self.structured.merge_edge(cs, cd, e, source_id)
+                observed = sorted({d for u in _edge_urls(e) if (d := source_dates.get(u))})
+                shared = events_by_actor.get(cs, set()) & events_by_actor.get(cd, set())
+                win_dates = sorted(d for ev in shared for d in event_dates.get(ev, []))
+                active = [win_dates[0], win_dates[-1]] if win_dates else None
+                self.structured.merge_edge(cs, cd, e, source_id,
+                                           observed_dates=observed, active_window=active)
 
     async def _persist(self) -> None:
         await self._rag.chunk_entity_relation_graph.index_done_callback()

@@ -74,7 +74,12 @@ investigations everything the KG schema drops:
 
 - relation `type` + `context`, the relationship **role** (the nature of the
   link, e.g. "longtime media consultant"), the per-edge citation URLs,
-  `is_hypothesis` (TMFG fill-in vs attested), `weight`, runs, investigations.
+  `is_hypothesis` (TMFG fill-in vs attested), `weight`, runs, investigations;
+- **time intervals** (merged across investigations): `observed_dates` — the
+  article publication dates that asserted the edge, kept as a *set* (so a later
+  consistency pass can spot conflicts); and `active_window` `[start, end]` — the
+  global span of the dated events both endpoints share. See
+  [data-model.md](data-model.md#5-temporal-layer).
 
 **Temporal layer**
 

@@ -1106,7 +1106,8 @@ class InvestigationPipeline:
                 log.warning(f"Phase-2 BP failed: {type(e).__name__}: {e}")
 
         await self._merge_into_cumulative_kg(
-            merged_entities, edges_enrichment_results, f"inv::{run or investigation_id}"
+            merged_entities, edges_enrichment_results, f"inv::{run or investigation_id}",
+            source_dates=source_date_index(working_state),
         )
         self._render_debug_graph(investigation_id, merged_entities, edges_enrichment_results, investigation_query)
 
@@ -1418,7 +1419,8 @@ class InvestigationPipeline:
             return None
 
     async def _merge_into_cumulative_kg(
-        self, entities: list[dict], edges: list[dict], source_id: str
+        self, entities: list[dict], edges: list[dict], source_id: str,
+        source_dates: dict | None = None,
     ) -> None:
         """Accumulate this run's graph into the persistent cross-investigation KG.
 
@@ -1429,7 +1431,8 @@ class InvestigationPipeline:
             return
         try:
             summary = await self.cumulative_kg.merge_graph(
-                {"nodes": entities, "edges": edges}, source_id=source_id
+                {"nodes": entities, "edges": edges}, source_id=source_id,
+                source_dates=source_dates,
             )
             log.info(f"Cumulative KG updated from {source_id}: {summary}")
         except Exception as e:  # noqa: BLE001 -- KG accumulation must never break a run

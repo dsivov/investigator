@@ -133,13 +133,30 @@ class StructuredStore:
         self._merge_evidence(rec, node.get("evidence"), source_id)
         rec["evidence_count"] = len(rec["evidence"])
 
-    def merge_edge(self, src: str, dst: str, edge: dict, source_id: str) -> None:
+    def merge_edge(self, src: str, dst: str, edge: dict, source_id: str,
+                   observed_dates=None, active_window=None) -> None:
         rec = self.edges.setdefault(_edge_key(src, dst), {
             "src": src, "dst": dst, "relations": [], "roles": [], "sources": [],
             "runs": [], "investigations": [], "is_hypothesis": False, "weight": 0.0,
+            "observed_dates": [], "active_window": None,
         })
         rec.setdefault("roles", [])
+        rec.setdefault("observed_dates", [])
+        rec.setdefault("active_window", None)
         rec["src"], rec["dst"] = src, dst
+        # Temporal layer (bitemporal): observed time = when the relationship was
+        # asserted (article pub dates, kept as a SET across runs so a later
+        # consistency pass can spot conflicts); valid time = active_window, the
+        # global [min, max] inferred from the dated events both endpoints share.
+        for d in _dates(observed_dates):
+            if d not in rec["observed_dates"]:
+                rec["observed_dates"].append(d)
+        rec["observed_dates"].sort()
+        win = _dates(active_window) if active_window else []
+        if win:
+            cur = [d for d in (rec.get("active_window") or []) if d]
+            alld = sorted(set(win) | set(cur))
+            rec["active_window"] = [alld[0], alld[-1]]
         rel = edge.get("relations")
         if isinstance(rel, str):
             try:
@@ -236,6 +253,9 @@ class StructuredStore:
 
     def get_entity(self, name: str):
         return self.entities.get(name)
+
+    def get_edge(self, src: str, dst: str):
+        return self.edges.get(_edge_key(src, dst))
 
     def entity_timeline(self, name: str) -> list[dict]:
         """An actor's chronology: their own timeline_events PLUS the dated events

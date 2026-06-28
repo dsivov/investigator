@@ -422,5 +422,11 @@ from their participated events; event nodes expose their own date. These power
 the **as-of reconstruction** documented in
 [ui-api.md](ui-api.md#temporal-as-of-reconstruction). Dates are stored as *sets*
 upstream (never collapsed), leaving room for a later consistency/conflict layer
-(Level 3). Cross-investigation persistence of edge intervals in the cumulative
-KG sidecar (`structured_store`) is the next phase.
+(Level 3).
+
+These intervals also persist into the cumulative KG: `structured_store` keeps
+per-edge `observed_dates` (union across investigations) and `active_window`
+(global min/max), computed in `cumulative_kg._merge_structured` from the run's
+`source_dates` index and shared dated events. The Knowledge Base query accepts an
+`asOf` filter that uses the same predicate (see
+[knowledge-base.md](knowledge-base.md)).
