@@ -19,6 +19,8 @@ import type {
   KbResult,
   MonitorWatchlist,
   MonitorDigest,
+  MonitorRule,
+  MonitorPatternMatch,
 } from "./types";
 
 async function post<T>(path: string): Promise<T> {
@@ -162,6 +164,20 @@ export const api = {
   },
   monitorDigests: () => get<{ dates: string[]; running: boolean }>("/api/monitor/digests"),
   monitorDigest: (date: string) => get<MonitorDigest>(`/api/monitor/digests/${date}`),
+  monitorRules: () => get<{ rules: MonitorRule[] }>("/api/monitor/rules"),
+  monitorEditRules: async (
+    body: { add?: MonitorRule; remove?: string; rules?: MonitorRule[] },
+  ): Promise<{ rules: MonitorRule[] }> => {
+    const r = await fetch("/api/monitor/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})) as any)?.message || `HTTP ${r.status}`);
+    return r.json();
+  },
+  monitorPatterns: () =>
+    get<{ matches: MonitorPatternMatch[]; count: number }>("/api/monitor/patterns"),
   // mode omitted -> backend picks per-endpoint defaults (entities=hybrid, answer=global).
   kbQuery: async (
     query: string,

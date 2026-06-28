@@ -1056,6 +1056,39 @@ def monitor_digest(date):
     return jsonify(d)
 
 
+@app.route("/api/monitor/rules", methods=["GET", "POST"])
+def monitor_rules():
+    from investigator.monitor.rules import load_rules, save_rules, validate_rule
+    rules = load_rules()
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        if isinstance(body.get("rules"), list):                  # full replace
+            rules = [r for r in body["rules"] if validate_rule(r)]
+        if body.get("add") and validate_rule(body["add"]):       # add one
+            rules = [r for r in rules if r.get("name") != body["add"].get("name")] + [body["add"]]
+        if body.get("remove"):                                   # remove by name
+            rules = [r for r in rules if r.get("name") != body["remove"]]
+        save_rules(rules)
+    return jsonify({"rules": rules})
+
+
+@app.route("/api/monitor/patterns", methods=["GET"])
+def monitor_patterns():
+    """Standalone CEP scan over the whole cumulative KG (not watchlist-scoped).
+    Optional ?recentSince=YYYY-MM-DD keeps only recently-completed chains."""
+    kb = _get_kb()
+    if kb is None:
+        return _err(503, "kb_unavailable", "No cumulative knowledge base yet.")
+    from investigator.monitor.patterns import match_rules, build_adjacency, events_from_store
+    from investigator.monitor.rules import load_rules
+    try:
+        matches = match_rules(events_from_store(kb.structured), build_adjacency(kb.structured),
+                              load_rules(), recent_since=_valid_date(request.args.get("recentSince")))
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "kb_error", f"Pattern scan failed: {type(e).__name__}: {e}")
+    return jsonify({"matches": matches, "count": len(matches)})
+
+
 # ---------------------------------------------------------------------------
 # Integrations: OpenRegistry login (one-time browser OAuth, local/desktop).
 # The Connect flow spawns research/enrichment.py --openregistry-login as a

@@ -38,13 +38,34 @@ export interface MonitorEvent {
   alert: boolean;
 }
 
+export interface MonitorPatternMatch {
+  rule: string;
+  severity: string;
+  events: { id: string; date: string; type: string }[];
+  bridges: string[];
+  span: { from: string; to: string; days: number };
+}
+
+export interface MonitorRuleStep {
+  types?: string[];
+  keywords?: string[];
+}
+
+export interface MonitorRule {
+  name: string;
+  windowDays: number;
+  severity: string;
+  steps: MonitorRuleStep[];
+}
+
 export interface MonitorDigest {
   date: string;
   watchlist: MonitorWatchlist;
   alertThreshold: number;
   events: MonitorEvent[];
   alerts: MonitorEvent[];
-  counts: { events: number; alerts: number };
+  patterns?: MonitorPatternMatch[];
+  counts: { events: number; alerts: number; patterns?: number };
   intake?: { subjects: string[]; articles: number; extractedNodes: number; intersectedEvents: number };
 }
 

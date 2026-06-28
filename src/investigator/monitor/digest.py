@@ -18,6 +18,9 @@ from investigator.graph.temporal_consistency import date_spread_conflict
 from investigator.monitor import impact as _impact
 from investigator.monitor.intake import daily_intake
 from investigator.monitor.intersect import intersect
+from investigator.monitor.patterns import (
+    match_rules, build_adjacency, events_from_store, events_from_graph)
+from investigator.monitor.rules import load_rules
 
 ALERT_THRESHOLD = float(os.getenv("INVESTIGATOR_MONITOR_ALERT", "0.2"))
 DIGEST_DIR = Path("news_investigations/monitor")
@@ -115,6 +118,33 @@ def run_once(watchlist, *, k: int = 8, period: str = "1d", today: str | None = N
                         "articles": len(day["articles"]),
                         "extractedNodes": len(day["nodes"]),
                         "intersectedEvents": len(intersected)}
+
+    # CEP pattern rules over the cumulative KG + today's fresh events (so a new
+    # event can *complete* a pattern), scoped to the watchlist, surfacing only
+    # chains whose final event is recent.
+    digest["patterns"] = _scan_patterns(
+        structured, registry, watchlist, today=today, day=day)
+    digest["counts"]["patterns"] = len(digest["patterns"])
     if save:
         digest["savedTo"] = str(save_digest(digest))
     return digest
+
+
+def _scan_patterns(structured, registry, watchlist, *, today: str, day: dict | None = None,
+                   rules: list[dict] | None = None) -> list[dict]:
+    """Run the CEP matcher over the global events (+ today's, canonicalised), only
+    keeping chains that complete within the longest rule window of ``today`` and
+    involve a watched entity."""
+    rules = rules if rules is not None else load_rules()
+    if not rules:
+        return []
+    events = events_from_store(structured)
+    if day:
+        for eid, ev in events_from_graph(day.get("nodes"), day.get("edges")).items():
+            ev["participants"] = [registry.lookup(p) or p for p in (ev["participants"] or [])]
+            events.setdefault(eid, ev)
+    adjacency = build_adjacency(structured)
+    max_win = max((int(r.get("windowDays") or 30) for r in rules), default=30)
+    since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=max_win)).isoformat()
+    watched = {registry.lookup(w) or w.strip().upper() for w in watchlist.entities}
+    return match_rules(events, adjacency, rules, watched=watched, recent_since=since)

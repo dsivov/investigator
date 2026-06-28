@@ -142,7 +142,10 @@ See [monitoring.md](monitoring.md). The engine must be running for `run`.
 | `POST` | `/api/monitor/watchlist` | Edit it. Body `{add?: [], remove?: [], domain?}`. Returns the updated watchlist. |
 | `POST` | `/api/monitor/run` | Trigger a run as a background subprocess. Body `{k?, period?}`. Returns `{running, message}`; poll the digests list for the result. |
 | `GET`  | `/api/monitor/digests` | `{dates: [...], running}` — available digest dates + whether a run is in progress. |
-| `GET`  | `/api/monitor/digests/:date` | One dated digest: `{date, watchlist, events[], alerts[], counts, intake}`; each event carries `topScore`, `touched`, `watched`, `impacted[{entity, delta, hops, isBroker, watched, score}]`, `alert`. |
+| `GET`  | `/api/monitor/digests/:date` | One dated digest: `{date, watchlist, events[], alerts[], patterns[], counts, intake}`; each event carries `topScore`, `touched`, `watched`, `impacted[{entity, delta, hops, isBroker, watched, score}]`, `alert`. |
+| `GET`  | `/api/monitor/rules` | `{rules[]}` — the CEP pattern rules (`{name, windowDays, severity, steps[{types?, keywords?}]}`). |
+| `POST` | `/api/monitor/rules` | Edit. Body `{add?: rule, remove?: name, rules?: [...]}` (full replace). Returns the updated list. |
+| `GET`  | `/api/monitor/patterns` | Standalone CEP scan over the whole KG (unscoped). `?recentSince=YYYY-MM-DD` optional. Returns `{matches[{rule, severity, events[{id,date,type}], bridges[], span}], count}`. |
 
 ### Sources & enrichment
 
