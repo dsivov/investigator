@@ -43,8 +43,15 @@ export interface KbResult {
   dataMode: string;
   answerMode: string;
   answer: string | null;
+  asOf?: string | null;
   entities: KbEntity[];
-  relationships: Array<{ src: string; dst: string; description: string }>;
+  relationships: Array<{
+    src: string;
+    dst: string;
+    description: string;
+    firstSeen?: string;
+    activeWindow?: [string, string] | null;
+  }>;
 }
 
 export interface InvestigationSummary {

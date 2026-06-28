@@ -137,12 +137,16 @@ export const api = {
   kbQuery: async (
     query: string,
     synthesize = true,
-    mode?: "local" | "global" | "hybrid" | "mix"
+    mode?: "local" | "global" | "hybrid" | "mix",
+    asOf?: string
   ): Promise<KbResult> => {
+    const body: Record<string, unknown> = { query, synthesize };
+    if (mode) body.mode = mode;
+    if (asOf) body.asOf = asOf;
     const r = await fetch("/api/kb/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mode ? { query, mode, synthesize } : { query, synthesize }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));

@@ -5,6 +5,7 @@
   let stats = $state<KbStats | null>(null);
   let query = $state("");
   let synthesize = $state(true);
+  let asOf = $state("");
   let result = $state<KbResult | null>(null);
   let answerHtml = $state("");
   let loading = $state(false);
@@ -37,7 +38,7 @@
     answerHtml = "";
     try {
       const [res, { marked }] = await Promise.all([
-        api.kbQuery(query.trim(), synthesize),
+        api.kbQuery(query.trim(), synthesize, undefined, asOf || undefined),
         import("marked"),
       ]);
       result = res;
@@ -81,6 +82,15 @@
           bind:value={query}
           onkeydown={(e) => e.key === "Enter" && run()}
         />
+        <label class="flex items-center gap-1 text-xs text-slate-400"
+          title="Drop relationships not yet asserted by this date (observed time, else inferred active window). Leave blank for all.">
+          <span>as of</span>
+          <input type="date" bind:value={asOf}
+            class="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 [color-scheme:dark]" />
+          {#if asOf}
+            <button class="text-slate-500 hover:text-slate-300" title="clear" onclick={() => (asOf = "")}>✕</button>
+          {/if}
+        </label>
         <label class="flex items-center gap-1 text-xs text-slate-400"
           title="Synthesised answer uses the relationship-anchored (global) lens; entities/relationships use the broad (hybrid) lens.">
           <input type="checkbox" bind:checked={synthesize} /> synthesize answer
@@ -192,6 +202,7 @@
           <section class="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
             <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">
               Relationships ({result.relationships.length})
+              {#if result.asOf}<span class="text-sky-400 normal-case tracking-normal"> · as of {result.asOf}</span>{/if}
             </div>
             <ul class="space-y-1.5 text-sm">
               {#each result.relationships.slice(0, 40) as r}
@@ -199,6 +210,13 @@
                   <span class="text-slate-200">{r.src}</span>
                   <span class="text-slate-600">→</span>
                   <span class="text-slate-200">{r.dst}</span>
+                  {#if r.activeWindow}
+                    <span class="ml-1 text-[11px] mono text-sky-300/70" title="active window (valid time)">
+                      {r.activeWindow[0]}{r.activeWindow[1] !== r.activeWindow[0] ? `–${r.activeWindow[1]}` : ""}
+                    </span>
+                  {:else if r.firstSeen}
+                    <span class="ml-1 text-[11px] mono text-slate-500" title="first asserted (observed time)">{r.firstSeen}</span>
+                  {/if}
                 </li>
               {/each}
             </ul>
