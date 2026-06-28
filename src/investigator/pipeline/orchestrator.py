@@ -610,6 +610,13 @@ def match_query_to_entity(subject, entities, representatives, graph, *, allow_na
 
     candidates: list[str] = []
     for e in entities:
+        # The root is the investigation SUBJECT, which is always an entity --
+        # never an event. Event nodes are often headline-shaped paraphrases of
+        # the query (e.g. "CHARLOTTE KATES LINKS TO ... MATERIAL SUPPORT"), so a
+        # long sentence query can match one verbatim and root the graph on a
+        # peripheral node, stranding the real subject and fragmenting the graph.
+        if (e.get("node_type") or e.get("type")) == "event":
+            continue
         if any(matches(n) for n in [e.get("identifier"), e.get("representative_identifier"), *e.get("labels", [])]):
             candidates.append((e.get("representative_identifier") or e.get("identifier") or "").upper())
     for r in representatives:

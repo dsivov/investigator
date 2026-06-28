@@ -111,6 +111,26 @@ def test_in_graph_match_preferred_over_isolated():
     assert match_query_to_entity("acme", ents, [], g) == "ACME CORP"
 
 
+def test_event_node_is_never_the_root():
+    # A long sentence query can match an event/headline-shaped node verbatim
+    # (e.g. "CHARLOTTE KATES LINKS TO ... MATERIAL SUPPORT"). The root is the
+    # investigation subject -- always an entity -- so the event must be skipped,
+    # leaving the fast-path empty so the caller falls through to NER.
+    sentence = "CHARLOTTE KATES LINKS TO DESIGNATED TERRORIST GROUPS MATERIAL SUPPORT"
+    g = _graph(sentence, "CHARLOTTE KATES")
+    ents = [
+        {"identifier": sentence, "representative_identifier": sentence, "labels": [], "type": "event"},
+        _ent("CHARLOTTE KATES"),
+    ]
+    # Raw-query fast-path: only the event matched verbatim -> excluded -> None.
+    assert match_query_to_entity(
+        "Charlotte Kates links to designated terrorist groups material support",
+        ents, [], g, allow_name_in_query=False,
+    ) is None
+    # Distilled subject then matches the real entity (event still excluded).
+    assert match_query_to_entity("Charlotte Kates", ents, [], g) == "CHARLOTTE KATES"
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
