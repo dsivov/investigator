@@ -27,6 +27,40 @@
     rules = (await api.monitorEditRules({ remove: name })).rules;
   }
 
+  // Known KG event types (for the step-builder hints).
+  const EVENT_TYPES = [
+    "sanctions", "financial_crime", "indictment", "military_action", "diplomatic",
+    "legislative", "corporate_action", "violent_crime", "bribery", "corruption", "other",
+  ];
+  // Draft rule: step types/keywords are comma-strings for easy input.
+  let draft = $state<{ name: string; severity: string; windowDays: number; steps: { types: string; keywords: string }[] }>({
+    name: "", severity: "medium", windowDays: 30, steps: [{ types: "", keywords: "" }, { types: "", keywords: "" }],
+  });
+  let ruleErr = $state("");
+  const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+  const draftValid = $derived(
+    !!draft.name.trim() &&
+      draft.steps.length >= 1 &&
+      draft.steps.every((s) => csv(s.types).length || csv(s.keywords).length),
+  );
+
+  function addStep() { draft.steps = [...draft.steps, { types: "", keywords: "" }]; }
+  function removeStep(i: number) { draft.steps = draft.steps.filter((_, j) => j !== i); }
+
+  async function submitRule() {
+    ruleErr = "";
+    const rule = {
+      name: draft.name.trim(),
+      windowDays: Number(draft.windowDays) || 30,
+      severity: draft.severity,
+      steps: draft.steps.map((s) => ({ types: csv(s.types), keywords: csv(s.keywords) })),
+    };
+    try {
+      rules = (await api.monitorEditRules({ add: rule })).rules;
+      draft = { name: "", severity: "medium", windowDays: 30, steps: [{ types: "", keywords: "" }, { types: "", keywords: "" }] };
+    } catch (e: any) { ruleErr = e?.message || "Failed to add rule"; }
+  }
+
   async function loadWatchlist() {
     try { watchlist = await api.monitorWatchlist(); } catch (e: any) { err = e?.message; }
   }
@@ -217,7 +251,7 @@
         <span class="text-slate-600 text-xs font-normal ml-1">chronological event chains the monitor watches for</span>
       </button>
       {#if showRules}
-        <ul class="px-4 pb-3 space-y-2">
+        <ul class="px-4 pb-2 space-y-2">
           {#each rules as r}
             <li class="flex items-center gap-2 text-xs">
               <span class="rounded border px-1.5 text-[10px] {sevClass(r.severity)}">{r.severity}</span>
@@ -231,6 +265,42 @@
             </li>
           {/each}
         </ul>
+
+        <!-- Add-rule form -->
+        <div class="mx-4 mb-3 rounded border border-slate-800 bg-slate-900/60 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-slate-500 mb-2">New rule</div>
+          <div class="flex flex-wrap items-center gap-2 mb-2">
+            <input class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 min-w-[16rem]"
+              placeholder="rule name" bind:value={draft.name} />
+            <label class="flex items-center gap-1 text-xs text-slate-400">severity
+              <select class="bg-slate-800 border border-slate-700 rounded px-1.5 py-1" bind:value={draft.severity}>
+                <option value="high">high</option><option value="medium">medium</option><option value="low">low</option>
+              </select></label>
+            <label class="flex items-center gap-1 text-xs text-slate-400">window
+              <input type="number" min="1" max="365" bind:value={draft.windowDays} class="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1" />d</label>
+          </div>
+          <datalist id="event-types">{#each EVENT_TYPES as t}<option value={t}></option>{/each}</datalist>
+          <div class="space-y-1.5">
+            {#each draft.steps as step, i}
+              <div class="flex items-center gap-2">
+                <span class="text-slate-600 text-xs w-5">{i + 1}.</span>
+                <input list="event-types" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 flex-1"
+                  placeholder="event types (comma-sep, e.g. sanctions)" bind:value={step.types} />
+                <input class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 flex-1"
+                  placeholder="or keywords (comma-sep)" bind:value={step.keywords} />
+                <button class="text-slate-600 hover:text-red-400 text-xs" title="remove step"
+                  disabled={draft.steps.length <= 1} onclick={() => removeStep(i)}>✕</button>
+              </div>
+            {/each}
+          </div>
+          {#if ruleErr}<div class="text-red-400 text-xs mt-2">{ruleErr}</div>{/if}
+          <div class="flex items-center gap-2 mt-2.5">
+            <button class="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded px-2 py-1" onclick={addStep}>+ step</button>
+            <button class="text-xs rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-emerald-200 hover:bg-emerald-900/70 disabled:opacity-40"
+              disabled={!draftValid} onclick={submitRule}>Add rule</button>
+            <span class="text-[11px] text-slate-600">a chain matches when each step's event occurs in order, linked + within the window</span>
+          </div>
+        </div>
       {/if}
     </div>
   </div>
