@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Hidden Thread — finding the actor who connects two stories</title>
+<style>
+:root{
+  --bg:#0f1117; --bg2:#161922; --panel:#1b1f2a; --panel2:#222736;
+  --ink:#e7ebf3; --ink-soft:#aab3c5; --ink-faint:#7b8499;
+  --line:#2c3346; --line-soft:#232a3a;
+  /* accents: a=actors, b=themes/bridges(brand), c=events/hypotheses, ctrl=connections/brokers */
+  --a:#5b8def; --b:#19b89a; --c:#f0a73c; --ctrl:#a974f0; --danger:#ef5b6e; --ok:#3ecf8e;
+  --shadow:0 10px 30px rgba(0,0,0,.35); --radius:14px; --maxw:1140px;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:
+    radial-gradient(1100px 600px at 82% -10%, rgba(25,184,154,.10), transparent 60%),
+    radial-gradient(900px 520px at -10% 8%, rgba(91,141,239,.08), transparent 55%),
+    var(--bg);
+  color:var(--ink);font:17px/1.7 "Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+a{color:var(--a);text-decoration:none} a:hover{text-decoration:underline}
+code,pre,.mono{font-family:var(--mono)}
+svg{max-width:100%;height:auto}
+
+.hero{padding:70px 22px 34px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(25,184,154,.07),transparent)}
+.hero-inner{max-width:880px;margin:0 auto}
+.eyebrow{letter-spacing:.22em;text-transform:uppercase;font-size:12px;color:var(--ink-faint);font-weight:700}
+.hero h1{font-size:clamp(32px,5.5vw,54px);line-height:1.04;margin:.3em 0 .25em;
+  background:linear-gradient(92deg,#cfe0ff,#8fd9c9 50%,#ffd79a);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:clamp(17px,2.2vw,21px);color:var(--ink-soft)}
+.byline{margin-top:14px;color:var(--ink-faint);font-size:13.5px}
+.byline a{color:var(--ink-soft)}
+.hero-tags{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap}
+.tag{border:1px solid var(--line);background:var(--panel);color:var(--ink-soft);padding:5px 11px;border-radius:999px;font-size:12.5px}
+.tag b{color:var(--ink)}
+
+.layout{max-width:var(--maxw);margin:0 auto;display:grid;grid-template-columns:240px 1fr;gap:40px;padding:30px 22px 90px}
+nav.toc{position:sticky;top:18px;align-self:start;max-height:calc(100vh - 36px);overflow:auto;
+  border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:14px}
+nav.toc .tl-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:4px 6px 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{counter-increment:toc}
+nav.toc a{display:flex;gap:8px;padding:6px 8px;border-radius:8px;color:var(--ink-soft);font-size:13.5px;line-height:1.3}
+nav.toc a::before{content:counter(toc,decimal-leading-zero);color:var(--ink-faint);font-family:var(--mono);font-size:11px}
+nav.toc a:hover{background:var(--panel2);text-decoration:none;color:var(--ink)}
+nav.toc a.active{background:linear-gradient(90deg,rgba(25,184,154,.18),transparent);color:#fff;border-left:2px solid var(--b)}
+
+main{min-width:0;max-width:760px}
+article section{margin:0 0 52px;scroll-margin-top:20px}
+h2{font-size:clamp(23px,3.2vw,31px);margin:0 0 6px;line-height:1.15}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--b);font-weight:700;margin-bottom:6px}
+h3{font-size:19px;margin:28px 0 8px}
+p{margin:.7em 0}
+.lead-p{font-size:19px;color:var(--ink)}
+.small{font-size:14px;color:var(--ink-faint)}
+.pull{font-size:22px;line-height:1.4;color:#d9e2f2;border-left:3px solid var(--b);padding:6px 0 6px 18px;margin:22px 0;font-weight:500}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:900px){.layout{grid-template-columns:1fr}nav.toc{display:none}.g2,.g3{grid-template-columns:1fr}main{max-width:none}}
+
+.callout{border-radius:12px;padding:14px 16px;border:1px solid var(--line);background:var(--panel2);margin:18px 0}
+.callout .clabel{font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.callout.info{border-color:rgba(91,141,239,.5);background:rgba(91,141,239,.08)} .callout.info .clabel{color:#9cc0ff}
+.callout.ok{border-color:rgba(62,207,142,.5);background:rgba(62,207,142,.08)} .callout.ok .clabel{color:#7ee3b4}
+.callout.caveat{border-color:rgba(240,167,60,.5);background:rgba(240,167,60,.08)} .callout.caveat .clabel{color:#ffce86}
+.callout.key{border-color:rgba(25,184,154,.55);background:rgba(25,184,154,.10)} .callout.key .clabel{color:#7fe3cf}
+
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;position:relative;overflow:hidden}
+.stat::after{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--a)}
+.stat.b::after{background:var(--b)} .stat.c::after{background:var(--c)} .stat.ctrl::after{background:var(--ctrl)}
+.stat .v{font-size:30px;font-weight:800;letter-spacing:-.02em} .stat .l{color:var(--ink-faint);font-size:13px;margin-top:3px}
+
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:540px}
+thead th{position:sticky;top:0;background:var(--panel2);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12.5px;letter-spacing:.04em;color:var(--ink-soft)}
+td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid var(--line)}
+.pill.a{background:rgba(91,141,239,.14);color:#9cc0ff;border-color:rgba(91,141,239,.4)}
+.pill.b{background:rgba(25,184,154,.14);color:#7fe3cf;border-color:rgba(25,184,154,.4)}
+.pill.c{background:rgba(240,167,60,.14);color:#ffce86;border-color:rgba(240,167,60,.4)}
+.pill.ctrl{background:rgba(169,116,240,.16);color:#cdb1f7;border-color:rgba(169,116,240,.45)}
+.pill.win{background:rgba(62,207,142,.14);color:#7ee3b4;border-color:rgba(62,207,142,.4)}
+.pill.warn{background:rgba(239,91,110,.14);color:#f6a0ab;border-color:rgba(239,91,110,.4)}
+
+figure{margin:22px 0}
+figure .fig{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+figcaption{color:var(--ink-faint);font-size:13.5px;margin-top:8px} figcaption b{color:var(--ink-soft)}
+
+pre{background:#0c0e14;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;font-size:13px;line-height:1.55}
+pre code{color:#d6deec}
+.kw{color:#7aa2f7}.str{color:#9ece6a}.num{color:#ff9e64}.cm{color:#5c6685;font-style:italic}.fn{color:#7dcfff}
+.quote{border-left:3px solid var(--c);background:var(--panel2);border-radius:0 10px 10px 0;padding:10px 16px;margin:14px 0;color:#d9e2f2;font-size:15px}
+.quote cite{display:block;margin-top:6px;color:var(--ink-faint);font-style:normal;font-size:12.5px;font-family:var(--mono)}
+hr.soft{border:none;border-top:1px solid var(--line-soft);margin:30px 0}
+.footer{max-width:var(--maxw);margin:0 auto;padding:30px 22px 70px;color:var(--ink-faint);font-size:13.5px;border-top:1px solid var(--line)}
+.footer a{color:var(--ink-soft)}
+.cta{display:inline-flex;align-items:center;gap:9px;margin:6px 8px 6px 0;padding:11px 18px;border-radius:10px;font-weight:700;font-size:15px;
+  background:linear-gradient(92deg,rgba(25,184,154,.22),rgba(91,141,239,.18));border:1px solid rgba(25,184,154,.5);color:#cdeee5}
+.cta:hover{text-decoration:none;border-color:rgba(25,184,154,.85);color:#fff}
+.backtotop{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);color:var(--ink-soft);
+  border-radius:999px;padding:9px 14px;font-size:13px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s}
+.backtotop.show{opacity:1;pointer-events:auto}
+b.hl{color:#8fd9c9}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow">On OSINT &amp; investigation</div>
+    <h1>The Hidden Thread</h1>
+    <p class="lede">An analyst following a region juggles many separate stories at once. The real finding is rarely
+      inside one of them — it's the <b>actor who shows up in two</b>. <b>Investigator</b> reads a pile of news, builds a
+      scored map of who connects to whom, and surfaces those crossings — with every claim traced back to a source URL.</p>
+    <div class="byline">A plain-language tour of how the analysis works — for the people who use it</div>
+    <div class="hero-tags">
+      <span class="tag"><b>bridges</b> across stories</span>
+      <span class="tag"><b>themes</b> that recur</span>
+      <span class="tag"><b>brokers</b> in the middle</span>
+      <span class="tag">corroboration you can check</span>
+      <span class="tag">a hypothesis verdict</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <div class="tl-title">In this post</div>
+  <ol>
+    <li><a href="#thread">The thread between stories</a></li>
+    <li><a href="#pipeline">From a pile of articles to a map</a></li>
+    <li><a href="#themes">Themes — who belongs together</a></li>
+    <li><a href="#bridges">Bridges — the actor in two stories</a></li>
+    <li><a href="#hidden">Hidden connections &amp; brokers</a></li>
+    <li><a href="#keynet">The key network</a></li>
+    <li><a href="#corro">How many sources agree</a></li>
+    <li><a href="#hypothesis">Does it support your case?</a></li>
+    <li><a href="#kb">A memory across investigations</a></li>
+    <li><a href="#fit">What it is, isn't · try it</a></li>
+  </ol>
+</nav>
+
+<main>
+<article>
+
+<!-- 1 -->
+<section id="thread">
+  <div class="kicker">The problem</div>
+  <h2>The thread between stories</h2>
+  <p class="lead-p">Imagine three unrelated news events in one week. An Israeli strike kills a Hamas commander. The US
+  Treasury sanctions a set of Hezbollah financiers. Houthi fighters attack Red Sea shipping. Three beats, three
+  reporters, three piles of articles. The interesting question isn't inside any one of them — it's <i>what runs through
+  all three</i>.</p>
+
+  <p>To answer that by hand, you'd have to read hundreds of articles and hold every name in your head until one of them
+  reappears in a story it shouldn't. <b>Investigator does that crossover detection mechanically.</b></p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 880 320" role="img" aria-label="Three stories joined by two shared actors">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0L10 5L0 10z" fill="#8a93a8"/></marker>
+        <linearGradient id="gA" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22314f"/><stop offset="1" stop-color="#1a2236"/></linearGradient>
+        <linearGradient id="gB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#173a34"/><stop offset="1" stop-color="#13251f"/></linearGradient>
+        <linearGradient id="gC" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a2f17"/><stop offset="1" stop-color="#241c10"/></linearGradient>
+        <linearGradient id="gP" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2e2347"/><stop offset="1" stop-color="#1d1730"/></linearGradient>
+      </defs>
+      <style>
+        .bx{rx:10;stroke:#39425a;stroke-width:1}
+        .br{stroke:#19b89a;stroke-width:2}
+        .t{fill:#e7ebf3;font:13px "Segoe UI",sans-serif} .ts{fill:#aab3c5;font:11px "Segoe UI",sans-serif}
+        .h{fill:#cfe0ff;font:600 12px "Segoe UI",sans-serif}
+        .ln{stroke:#5b6680;stroke-width:1.6;fill:none}
+      </style>
+      <!-- three story columns -->
+      <text class="h" x="120" y="26" text-anchor="middle">STORY 1 · the strike</text>
+      <rect class="bx" x="40" y="40" width="160" height="36" fill="url(#gA)"/><text class="t" x="120" y="63" text-anchor="middle">Gaza strike · Hamas</text>
+      <text class="h" x="440" y="26" text-anchor="middle">STORY 2 · the sanctions</text>
+      <rect class="bx" x="360" y="40" width="160" height="36" fill="url(#gA)"/><text class="t" x="440" y="63" text-anchor="middle">Treasury · Hezbollah</text>
+      <text class="h" x="760" y="26" text-anchor="middle">STORY 3 · the shipping</text>
+      <rect class="bx" x="680" y="40" width="160" height="36" fill="url(#gA)"/><text class="t" x="760" y="63" text-anchor="middle">Red Sea · Houthi</text>
+      <!-- bridges -->
+      <rect class="bx br" x="210" y="170" width="150" height="44" fill="url(#gB)"/>
+      <text class="t" x="285" y="190" text-anchor="middle" font-weight="700">HAMAS</text>
+      <text class="ts" x="285" y="206" text-anchor="middle">bridge · stories 1 + 2</text>
+      <rect class="bx br" x="520" y="170" width="150" height="44" fill="url(#gB)"/>
+      <text class="t" x="595" y="190" text-anchor="middle" font-weight="700">IRAN</text>
+      <text class="ts" x="595" y="206" text-anchor="middle">bridge · stories 2 + 3</text>
+      <!-- connectors -->
+      <path class="ln" d="M120 76 C150 120 230 140 270 168"/>
+      <path class="ln" d="M440 76 C400 120 330 145 300 168"/>
+      <path class="ln" d="M440 76 C500 120 560 145 585 168"/>
+      <path class="ln" d="M760 76 C720 120 640 145 610 168"/>
+      <text class="ts" x="440" y="262" text-anchor="middle">Two green nodes attested in more than one story — the same actor, two beats apart.</text>
+    </svg>
+    <figcaption><b>Figure 1 —</b> Three independent searches fuse into one picture. The two green-bordered nodes are
+      <b>bridges</b>: actors the system found in more than one story. That's the lead a human would otherwise hunt for by
+      reading everything.</figcaption>
+  </div></figure>
+
+  <p class="pull">The interesting finding is rarely inside one story. It's the financier named in a sanctions story who
+  also appears in a separate shipping story — the one name that crosses over.</p>
+</section>
+
+<!-- 2 -->
+<section id="pipeline">
+  <div class="kicker">How it works</div>
+  <h2>From a pile of articles to a map</h2>
+  <p class="lead-p">Under the hood it's six steps. The first two pull facts out of text; the next three turn that soup of
+  per-article facts into a structured network; the last lets a confidence calculation flow across it.</p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 900 250" role="img" aria-label="The six-stage pipeline">
+      <style>
+        .pb{rx:10;stroke-width:1.2}
+        .pn{stroke:#2c8d7c}.pe{stroke:#c98a30}.pm{stroke:#4a6bbf}.pf{stroke:#8a5fd0}
+        .pt{fill:#eef2f8;font:600 12.5px "Segoe UI",sans-serif} .pd{fill:#aeb7c9;font:10.5px "Segoe UI",sans-serif}
+        .pl{stroke:#19b89a;stroke-width:2.2;fill:none;marker-end:url(#ar)}
+        .pn-no{fill:#7b8499;font:700 11px var(--mono),monospace}
+      </style>
+      <!-- row 1 -->
+      <rect class="pb pe" x="20"  y="40" width="190" height="64" fill="url(#gC)"/>
+      <text class="pn-no" x="36" y="60">01</text><text class="pt" x="115" y="62" text-anchor="middle">Fetch</text>
+      <text class="pd" x="115" y="80" text-anchor="middle">search news, download</text><text class="pd" x="115" y="94" text-anchor="middle">articles (keep headlines)</text>
+      <rect class="pb pe" x="245" y="40" width="190" height="64" fill="url(#gC)"/>
+      <text class="pn-no" x="261" y="60">02</text><text class="pt" x="340" y="62" text-anchor="middle">Extract</text>
+      <text class="pd" x="340" y="80" text-anchor="middle">an AI reads each article →</text><text class="pd" x="340" y="94" text-anchor="middle">actors &amp; events</text>
+      <rect class="pb pm" x="470" y="40" width="190" height="64" fill="url(#gA)"/>
+      <text class="pn-no" x="486" y="60">03</text><text class="pt" x="565" y="62" text-anchor="middle">Merge evidence</text>
+      <text class="pd" x="565" y="80" text-anchor="middle">"Putin" = "the Russian</text><text class="pd" x="565" y="94" text-anchor="middle">president" → one node</text>
+      <!-- row 2 -->
+      <rect class="pb pm" x="245" y="150" width="190" height="64" fill="url(#gA)"/>
+      <text class="pn-no" x="261" y="170">04</text><text class="pt" x="340" y="172" text-anchor="middle">Filter to backbone</text>
+      <text class="pd" x="340" y="190" text-anchor="middle">drop one-off links, keep</text><text class="pd" x="340" y="204" text-anchor="middle">what evidence supports</text>
+      <rect class="pb pn" x="470" y="150" width="190" height="64" fill="url(#gB)"/>
+      <text class="pn-no" x="486" y="170">05</text><text class="pt" x="565" y="172" text-anchor="middle">Triangulate (TMFG)</text>
+      <text class="pd" x="565" y="190" text-anchor="middle">cluster into themes;</text><text class="pd" x="565" y="204" text-anchor="middle">flag structural guesses</text>
+      <rect class="pb pf" x="695" y="150" width="190" height="64" fill="url(#gP)"/>
+      <text class="pn-no" x="711" y="170">06</text><text class="pt" x="790" y="172" text-anchor="middle">Confidence</text>
+      <text class="pd" x="790" y="190" text-anchor="middle">a score flows across</text><text class="pd" x="790" y="204" text-anchor="middle">the network</text>
+      <!-- arrows -->
+      <path class="pl" d="M210 72 H243"/>
+      <path class="pl" d="M435 72 H468"/>
+      <path class="pl" d="M565 104 C565 124 430 130 400 148"/>
+      <path class="pl" d="M435 182 H468"/>
+      <path class="pl" d="M660 182 H693"/>
+    </svg>
+    <figcaption><b>Figure 2 —</b> The pipeline. Bodies that fail to load (paywalls, blocks) are kept as
+      <b>headline-only</b> records rather than dropped — a headline still carries a name.</figcaption>
+  </div></figure>
+
+  <h3>What each step is really doing</h3>
+  <ul>
+    <li><b>Merge evidence.</b> The same actor is written a dozen ways. Surface variants collapse into one node, and the
+      list of articles that mention it becomes that node's <b>evidence</b>. Three articles asserting the same link become
+      <i>one edge of weight 3 carrying three URLs.</i></li>
+    <li><b>Filter to the backbone.</b> Rank every relationship by how many independent articles attest it, drop the
+      one-offs — but then restore the <b>shortest path</b> from any stranded actor back to your subject, so nothing
+      relevant gets cut off.</li>
+    <li><b>Triangulate.</b> A method called <b>TMFG</b> keeps only the strongest, non-redundant links and groups the
+      actors into tight clusters of four — the <b>themes</b> (next section).</li>
+    <li><b>Confidence.</b> Each actor starts with a score from its own coverage; the network then nudges it by the
+      company it keeps — <i>surrounded by well-attested actors, your score rises; propped up only by shaky ones, it
+      falls.</i></li>
+  </ul>
+
+  <div class="grid g3" style="margin:16px 0">
+    <div class="stat"><div class="v">449</div><div class="l">articles fetched in one real 3-story run</div></div>
+    <div class="stat b"><div class="v">57-node</div><div class="l">map the system distilled them into</div></div>
+    <div class="stat ctrl"><div class="v">~50 min</div><div class="l">end-to-end — vs a working day of reading</div></div>
+  </div>
+  <p class="small">From that run: 449 fetched → 312 extracted → a 57-node graph (36 events + 21 actors) → 90 directly
+  attested relationships, each carrying its source URL → 2 cross-story bridges → 8 ranked leads.</p>
+</section>
+
+<!-- 3 -->
+<section id="themes">
+  <div class="kicker">Themes</div>
+  <h2>Themes — which actors belong together</h2>
+  <p class="lead-p">A <b>theme</b> is the system's answer to "who goes with whom?" — a tight group of four actors that
+  keep showing up together. Open one and it expands into the relationships binding its four members, each with its
+  source.</p>
+
+  <p>Themes come out of step 5 (TMFG). The trick of TMFG is that it builds a graph you can decompose cleanly into
+  overlapping four-actor cliques, and each clique is a theme. Some links TMFG draws weren't stated outright in any single
+  article — those <b>fill-in</b> edges become the system's <b>structural hypotheses</b>, kept visually distinct (dashed)
+  from facts (solid) so you know which is which.</p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 880 300" role="img" aria-label="A theme as a four-actor clique">
+      <style>
+        .nb{fill:url(#gB);stroke:#19b89a;stroke-width:1.6}
+        .nt{fill:#eaf6f2;font:600 13px "Segoe UI",sans-serif}
+        .solid{stroke:#7fe3cf;stroke-width:2.4;fill:none}
+        .fill{stroke:#f0a73c;stroke-width:2;stroke-dasharray:5 5;fill:none}
+        .el{fill:#aab3c5;font:11px "Segoe UI",sans-serif}
+        .score{fill:#7fe3cf;font:700 13px var(--mono),monospace}
+      </style>
+      <!-- four nodes of CHINA CIPS IRAN RUSSIA -->
+      <!-- edges first -->
+      <path class="solid" d="M230 80 L230 220"/>          <!-- CHINA-CIPS -->
+      <path class="solid" d="M230 220 L640 220"/>          <!-- CIPS-IRAN bottom? -->
+      <path class="solid" d="M230 220 L640 80"/>           <!-- CIPS-RUSSIA -->
+      <path class="fill"  d="M230 80 L640 80"/>            <!-- CHINA-RUSSIA fill-in -->
+      <path class="fill"  d="M640 80 L640 220"/>           <!-- RUSSIA-IRAN fill-in -->
+      <path class="solid" d="M230 80 L640 220"/>           <!-- CHINA-IRAN -->
+      <!-- nodes -->
+      <g><rect class="nb" x="150" y="58" width="160" height="44" rx="10"/><text class="nt" x="230" y="85" text-anchor="middle">CHINA</text></g>
+      <g><rect class="nb" x="150" y="198" width="160" height="44" rx="10"/><text class="nt" x="230" y="225" text-anchor="middle">CIPS</text></g>
+      <g><rect class="nb" x="560" y="58" width="160" height="44" rx="10"/><text class="nt" x="640" y="85" text-anchor="middle">RUSSIA</text></g>
+      <g><rect class="nb" x="560" y="198" width="160" height="44" rx="10"/><text class="nt" x="640" y="225" text-anchor="middle">IRAN</text></g>
+      <!-- labels -->
+      <text class="el" x="138" y="150" text-anchor="end">ownership</text>
+      <text class="score" x="440" y="285" text-anchor="middle">evidence-weighted score 5.9</text>
+      <!-- legend -->
+      <line class="solid" x1="470" y1="44" x2="500" y2="44"/><text class="el" x="506" y="48">attested by a source</text>
+      <line class="fill"  x1="470" y1="26" x2="500" y2="26"/><text class="el" x="506" y="30">fill-in = a structural hypothesis to check</text>
+    </svg>
+    <figcaption><b>Figure 3 —</b> A real theme from a sanctions-evasion run. Solid links are attested in articles; the
+      dashed links are the algorithm's own structural guesses. The theme names the <i>mechanism</i> — CIPS, China's yuan
+      payment rail — binding the network, not just four names that co-occur.</figcaption>
+  </div></figure>
+
+  <p>Here's that theme expanded, the way an analyst sees it — every member relationship with its quote and source:</p>
+  <div class="quote">
+    <b>CHINA ↔ CIPS</b> <span class="pill b">ownership</span> — "China operates and controls the Cross-Border Interbank
+    Payment System (CIPS), used to facilitate yuan-denominated transactions… amid sanctions."<br>
+    <b>CIPS ↔ RUSSIA</b> — "CIPS has seen increased usage by Russian entities… following Western sanctions."<br>
+    <b>CIPS ↔ IRAN</b> — "CIPS volumes reached record highs in global oil trade involving Iran."
+    <cite>theme CHINA · CIPS · IRAN · RUSSIA — evidence-weighted score 5.9 · [cnbc.com]</cite>
+  </div>
+
+  <div class="callout ok">
+    <div class="clabel">◆ Why "evidence-weighted" matters</div>
+    Themes are ranked by how well-<i>corroborated</i> they are, not just how busy they look. Switching to evidence-based
+    ranking moved the top themes of a real three-story run from a roughly even actor/event mix to <b>~90% actor-centred</b>
+    — surfacing the relationship structures an investigator wants, and pushing duplicate event-headlines down.
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="bridges">
+  <div class="kicker">Bridges</div>
+  <h2>Bridges — the actor in two stories</h2>
+  <p class="lead-p">Every search you add is fed into one session, and every actor is stamped with which search produced
+  it. The actors that show up in <b>more than one</b> search are the <b>bridges</b> — the backbone of any cross-story
+  claim, and usually the whole point of the exercise.</p>
+
+  <p>In the three-story example, two bridges fell out: <b>HAMAS</b> (the strike story <i>and</i> the sanctions story) and
+  <b>IRAN</b> (the sanctions story <i>and</i> the shipping story). Each bridge comes with a small dossier you can verify:
+  the articles in each story that mention it, the actual quotes with URLs, and the structural reason it was flagged.</p>
+
+  <p>From the bridges, the system ranks concrete <b>cross-story leads</b> — the kind of thing you'd want to go read:</p>
+
+  <div class="quote">
+    <b>BINANCE</b> <span class="pill a">sanctions story</span> ↔ <b>HOUTHI</b> <span class="pill a">Red Sea story</span>
+    <i>via bridge</i> <b>IRAN</b><br>
+    Grounded in a source-cited relation on the Binance node: <i>"Iran funneled $850 million through Binance… used as a
+    channel for Iranian financial transactions."</i>
+    <cite>newsmax.com (citing WSJ)</cite>
+  </div>
+
+  <div class="callout caveat">
+    <div class="clabel">▲ Read the framing carefully</div>
+    That lead is <i>not</i> "Binance is helping the Houthis" — no article says that. It's "Iran's financial channel through
+    Binance overlaps with the same Iran that operates the Houthis. Worth examining together." A defensible place to start
+    reading — not a conclusion.
+  </div>
+
+  <p class="small">The shape of the bridges is itself a finding. In a separate sanctions run, three state actors —
+  CHINA, IRAN, RUSSIA — bridged <i>all three</i> stories at once (a triangle, each at full confidence), a very different
+  structure from a chain of adjacent pairs.</p>
+</section>
+
+<!-- 5 -->
+<section id="hidden">
+  <div class="kicker">Connections</div>
+  <h2>Hidden connections &amp; the brokers in the middle</h2>
+  <p class="lead-p">Sometimes you have a specific question: <i>how are these particular actors related?</i> Pick any set
+  of them and the system builds a focused sub-map on demand, in three modes.</p>
+
+  <div class="grid g3">
+    <div class="card"><h3 style="margin-top:0">Shortest path</h3>
+      <p class="small">The single thinnest route between each pair, plus the intermediaries it passes through. The
+      obvious link.</p></div>
+    <div class="card"><h3 style="margin-top:0">Hidden (indirect)</h3>
+      <p class="small">The interesting one. Finds non-obvious multi-hop chains <i>even when a direct link already
+      exists</i> — the structure a shortest path hides.</p></div>
+    <div class="card"><h3 style="margin-top:0">Direct only</h3>
+      <p class="small">Just the links that exist directly among your selection — no intermediaries.</p></div>
+  </div>
+
+  <p>In "hidden" mode the intermediaries are ranked by how much traffic flows through them (a measure called
+  <b>betweenness</b>), and the central ones are flagged as <b>brokers</b> — the actors that actually bind your selection
+  together.</p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 880 280" role="img" aria-label="Shortest path versus hidden connections">
+      <style>
+        .na{fill:url(#gA);stroke:#39425a} .nbk{fill:url(#gP);stroke:#a974f0;stroke-width:2}
+        .nx{fill:#e7ebf3;font:12.5px "Segoe UI",sans-serif} .nxb{fill:#e7ebf3;font:600 12.5px "Segoe UI",sans-serif}
+        .sp{stroke:#5b8def;stroke-width:2.4;fill:none}
+        .hp{stroke:#a974f0;stroke-width:2;fill:none}
+        .cap{fill:#aab3c5;font:11.5px "Segoe UI",sans-serif} .tagb{fill:#cdb1f7;font:700 11px var(--mono),monospace}
+      </style>
+      <!-- endpoints -->
+      <rect class="na" x="30" y="120" width="150" height="40" rx="10"/><text class="nx" x="105" y="145" text-anchor="middle">Arnon Milchan</text>
+      <rect class="na" x="700" y="120" width="150" height="40" rx="10"/><text class="nx" x="775" y="145" text-anchor="middle">Shaul Elovitch</text>
+      <!-- broker center -->
+      <rect class="nbk" x="360" y="40" width="160" height="42" rx="10"/><text class="nxb" x="440" y="66" text-anchor="middle">Netanyahu</text>
+      <text class="tagb" x="440" y="30" text-anchor="middle">BROKER</text>
+      <!-- hidden intermediaries -->
+      <rect class="na" x="370" y="160" width="140" height="38" rx="10"/><text class="nx" x="440" y="184" text-anchor="middle">Bezeq</text>
+      <rect class="na" x="370" y="216" width="140" height="38" rx="10"/><text class="nx" x="440" y="240" text-anchor="middle">Walla! News</text>
+      <!-- shortest path -->
+      <path class="sp" d="M180 134 C260 110 300 80 358 70"/>
+      <path class="sp" d="M522 70 C580 80 620 110 700 134"/>
+      <!-- hidden paths -->
+      <path class="hp" d="M180 145 C260 170 320 178 368 179"/>
+      <path class="hp" d="M512 179 C600 172 650 150 700 142"/>
+      <path class="hp" d="M180 152 C270 220 320 232 368 234"/>
+      <path class="hp" d="M512 234 C600 210 660 160 702 148"/>
+      <!-- legend -->
+      <line class="sp" x1="40" y1="40" x2="70" y2="40"/><text class="cap" x="76" y="44">shortest path (the obvious route)</text>
+      <line class="hp" x1="40" y1="60" x2="70" y2="60"/><text class="cap" x="76" y="64">hidden chains through intermediaries</text>
+    </svg>
+    <figcaption><b>Figure 4 —</b> Select <b>Milchan</b> and <b>Elovitch</b> in a Netanyahu corruption run. Shortest path
+      shows only the obvious <code>Milchan → Netanyahu → Elovitch</code>. Hidden mode also surfaces
+      <code>… → Bezeq → Elovitch</code> and <code>… → Walla! News → Elovitch</code> — the actual Case-4000 entities — and
+      names <b>Netanyahu</b> as the broker.</figcaption>
+  </div></figure>
+
+  <p>Hit <b>Analyse</b> and that sub-map is handed to the AI, which writes a short, evidence-grounded report on
+  <i>how</i> the selected actors interconnect — naming each chain and what each broker bridges.</p>
+</section>
+
+<!-- 6 -->
+<section id="keynet">
+  <div class="kicker">Key network</div>
+  <h2>The key network — done for you automatically</h2>
+  <p class="lead-p">The <b>Key network</b> tab runs that same hidden-connection machinery with <i>no</i> manual
+  selection. It seeds itself with the investigation's most important nodes — the <b>theme members</b> plus the
+  <b>bridges</b> — and surfaces the brokers that stitch those otherwise-separate clusters into one skeleton.</p>
+
+  <p>It's the connective tissue the themes view doesn't show: not which actors group together, but the single node the
+  whole investigation hinges on.</p>
+
+  <div class="callout info">
+    <div class="clabel">◆ One node to rule them</div>
+    On a real Netanyahu run, the <b>21 theme nodes</b> collapsed to a single broker — the <b>Attorney-General's
+    Office</b> — binding every cluster together. One <b>Analyse</b> click then summarises the whole investigation's
+    structure. (Quality tracks the inputs: a thin run yields a thin skeleton.)
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="corro">
+  <div class="kicker">Fact-checking</div>
+  <h2>How many sources actually agree</h2>
+  <p class="lead-p">Corroboration — the heart of fact-checking — is shown right on the screen. Every actor and every
+  piece of evidence carries a badge for how many <i>independent</i> sources confirm the <b>same claim</b>.</p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 880 220" role="img" aria-label="Corroboration badges and syndication collapse">
+      <style>
+        .bd{rx:999px;stroke-width:1.4} .bdt{font:700 12px "Segoe UI",sans-serif}
+        .lab{fill:#aab3c5;font:12px "Segoe UI",sans-serif} .cap{fill:#7b8499;font:11.5px "Segoe UI",sans-serif}
+        .src{fill:url(#gA);stroke:#39425a} .one{fill:url(#gB);stroke:#19b89a;stroke-width:1.6}
+        .col{stroke:#5b6680;stroke-width:1.4;fill:none;marker-end:url(#ar)}
+      </style>
+      <!-- badges -->
+      <rect class="bd" x="40" y="36" width="92" height="28" fill="rgba(239,91,110,.16)" stroke="#ef5b6e"/><text class="bdt" x="86" y="55" text-anchor="middle" fill="#f6a0ab">weak</text>
+      <text class="cap" x="146" y="55">1 independent source</text>
+      <rect class="bd" x="40" y="80" width="92" height="28" fill="rgba(240,167,60,.16)" stroke="#f0a73c"/><text class="bdt" x="86" y="99" text-anchor="middle" fill="#ffce86">moderate</text>
+      <text class="cap" x="146" y="99">2 independent sources</text>
+      <rect class="bd" x="40" y="124" width="92" height="28" fill="rgba(62,207,142,.18)" stroke="#3ecf8e"/><text class="bdt" x="86" y="143" text-anchor="middle" fill="#7ee3b4">strong</text>
+      <text class="cap" x="146" y="143">3 or more independent sources</text>
+
+      <!-- syndication collapse -->
+      <text class="lab" x="560" y="28" text-anchor="middle">20 outlets reprint one wire story…</text>
+      <g>
+        <rect class="src" x="470" y="44" width="40" height="22" rx="6"/>
+        <rect class="src" x="516" y="44" width="40" height="22" rx="6"/>
+        <rect class="src" x="562" y="44" width="40" height="22" rx="6"/>
+        <rect class="src" x="608" y="44" width="40" height="22" rx="6"/>
+        <rect class="src" x="470" y="72" width="40" height="22" rx="6"/>
+        <rect class="src" x="516" y="72" width="40" height="22" rx="6"/>
+        <rect class="src" x="562" y="72" width="40" height="22" rx="6"/>
+        <rect class="src" x="608" y="72" width="40" height="22" rx="6"/>
+      </g>
+      <path class="col" d="M560 100 V140"/>
+      <rect class="one" x="500" y="146" width="120" height="34" rx="9"/><text class="bdt" x="560" y="168" text-anchor="middle" fill="#eaf6f2">= 1 source</text>
+      <text class="cap" x="560" y="198" text-anchor="middle">…counts as one confirmation, not twenty.</text>
+    </svg>
+    <figcaption><b>Figure 5 —</b> Claims are grouped by <i>meaning</i> (so paraphrases count together), and near-identical
+      syndicated copies collapse to a single source — a wire story reprinted everywhere is not mistaken for broad
+      agreement.</figcaption>
+  </div></figure>
+
+  <p>Two things make the badges trustworthy. First, claims are clustered by <b>meaning</b>, so "X was sanctioned" and "X
+  faces sanctions" count as the same claim. Second, <b>syndication</b> is collapsed: twenty outlets running the same wire
+  copy count as one independent source, not twenty. Well-corroborated actors also get a quiet nudge up the confidence
+  scale, so they rank above single-source ones.</p>
+
+  <div class="callout caveat">
+    <div class="clabel">▲ Breadth is not corroboration</div>
+    On one real run, Netanyahu had <b>94 mentions</b> but only about <b>22 independent sources</b> backing his
+    best-supported claim. "Mentioned a lot" and "confirmed by many independent sources" are different things — the badges
+    track the second.
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="hypothesis">
+  <div class="kicker">The verdict</div>
+  <h2>Does the network support your case?</h2>
+  <p class="lead-p">Every investigation runs against a <b>domain hypothesis</b> — one focused question the whole analysis
+  is testing. Pick a domain (terror financing, sanctions evasion, corporate misconduct, …) and that question scores every
+  piece of evidence.</p>
+
+  <p>Now the <b>Analyse</b> reports — both for a Connections sub-map and the Key network — close with a
+  <b>Hypothesis assessment</b>: a plain verdict on whether what you're looking at actually supports that question, in the
+  standard intelligence-community confidence language (the <b>ICD-203</b> scale), citing the specific links that drive
+  it.</p>
+
+  <figure><div class="fig">
+    <svg viewBox="0 0 880 230" role="img" aria-label="ICD-203 confidence ladder and a sample verdict">
+      <style>
+        .rung{fill:#aab3c5;font:12px "Segoe UI",sans-serif} .rb{rx:7;stroke:#2c3346;stroke-width:1}
+        .vt{fill:#eaf6f2;font:600 12.5px "Segoe UI",sans-serif} .vs{fill:#b9c2d4;font:11.5px "Segoe UI",sans-serif}
+        .verdict{fill:#7ee3b4;font:800 15px "Segoe UI",sans-serif}
+      </style>
+      <!-- ladder -->
+      <text class="rung" x="40" y="30" font-weight="700" fill="#cfe0ff">CONFIDENCE LADDER</text>
+      <rect class="rb" x="40" y="42"  width="240" height="22" fill="rgba(62,207,142,.22)"/><text class="rung" x="52" y="58">Almost Certainly</text>
+      <rect class="rb" x="40" y="68"  width="240" height="22" fill="rgba(62,207,142,.15)"/><text class="rung" x="52" y="84">Highly Likely</text>
+      <rect class="rb" x="40" y="94"  width="240" height="22" fill="rgba(240,167,60,.15)"/><text class="rung" x="52" y="110">Likely</text>
+      <rect class="rb" x="40" y="120" width="240" height="22" fill="rgba(123,132,153,.18)"/><text class="rung" x="52" y="136">Roughly Even Chance</text>
+      <rect class="rb" x="40" y="146" width="240" height="22" fill="rgba(240,167,60,.12)"/><text class="rung" x="52" y="162">Unlikely</text>
+      <rect class="rb" x="40" y="172" width="240" height="22" fill="rgba(239,91,110,.14)"/><text class="rung" x="52" y="188">Highly Unlikely</text>
+      <rect class="rb" x="40" y="198" width="240" height="22" fill="rgba(239,91,110,.2)"/><text class="rung" x="52" y="214">Almost Certainly Not</text>
+      <!-- sample verdict card -->
+      <rect class="bx" x="340" y="42" width="500" height="178" rx="12" fill="url(#gB)" stroke="#19b89a" stroke-width="1.4"/>
+      <text class="vt" x="360" y="68">## Hypothesis assessment</text>
+      <text class="verdict" x="360" y="96">Almost Certainly</text>
+      <text class="vs" x="360" y="120">The network supports the hypothesis: regulatory</text>
+      <text class="vs" x="360" y="138">violations &amp; financial misconduct by Huione Group.</text>
+      <text class="vs" x="360" y="162">Driving edges: HUIONE ↔ FinCEN (designation),</text>
+      <text class="vs" x="360" y="180">HUIONE → DPRK (laundering). Contextual links</text>
+      <text class="vs" x="360" y="198">(Cambodia ↔ China/US) do not undercut the finding.</text>
+    </svg>
+    <figcaption><b>Figure 6 —</b> A real verdict from a corporate-misconduct run on Huione Group. The report names the
+      specific links that carry the weight, and explicitly sets aside the ones that are merely context.</figcaption>
+  </div></figure>
+
+  <p class="small">If no link in the sub-map actually bears on your question, the report says so plainly and gives the
+  lowest-confidence verdict — it won't manufacture a case from coincidence.</p>
+</section>
+
+<!-- 9 -->
+<section id="kb">
+  <div class="kicker">Memory</div>
+  <h2>A memory that spans investigations</h2>
+  <p class="lead-p">On its own, each run is amnesiac — it only sees the articles it just fetched. Turn on the analytics
+  engine and every finished investigation folds into <b>one persistent knowledge base</b> that later runs draw on, and
+  that you can question directly.</p>
+
+  <div class="grid g2">
+    <div class="card"><h3 style="margin-top:0">It remembers actors across cases</h3>
+      <p class="small">"We've seen this name before, in a different investigation, doing a different thing." New runs are
+      <b>pre-seeded</b> with what the base already knows about the subject.</p></div>
+    <div class="card"><h3 style="margin-top:0">It merges carefully, never recklessly</h3>
+      <p class="small">It auto-merges only safe name variants (<code>U.S.</code> ↔ <code>US</code>) and sends genuine
+      ambiguities to a review log. It will <i>not</i> silently fuse <b>James Comer</b> and <b>James Comey</b>.</p></div>
+  </div>
+
+  <p>Because it knows <i>when</i> things happened, you can even ask time questions without naming the actor —
+  <i>"which organization was banned by Germany in 2024?"</i> and <i>"what entity was subject to an OFAC action in October
+  2024?"</i> both correctly return <b>Samidoun</b>, from its assembled timeline. A conflicts panel flags date
+  disagreements as data-quality leads.</p>
+
+  <div class="grid g3" style="margin:14px 0">
+    <div class="stat b"><div class="v">1,239</div><div class="l">dated events in the accumulated base</div></div>
+    <div class="stat"><div class="v">824</div><div class="l">entities with assembled timelines</div></div>
+    <div class="stat ctrl"><div class="v">901</div><div class="l">event-ordering links between them</div></div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section id="fit">
+  <div class="kicker">In practice</div>
+  <h2>What it is, what it isn't — and how to try it</h2>
+  <p class="lead-p">Investigator turns a bag of source material into a scored, source-traced map, finds the structure that
+  crosses stories, and tells you — in plain confidence language — whether that structure supports the question you're
+  asking. But it's a place to <i>start</i>, not a verdict to publish.</p>
+
+  <div class="grid g3">
+    <div class="card"><h3 style="margin-top:0">Not a causation engine</h3>
+      <p class="small">It surfaces co-occurrence and source-stated relationships. "Iran bridges Hezbollah and the
+      Houthis" means the same Iran is attested in both — <i>not</i> that Iran caused either.</p></div>
+    <div class="card"><h3 style="margin-top:0">Only as good as the corpus</h3>
+      <p class="small">If coverage leans one way, so does the graph. Treat a thin or one-publisher run as a thin
+      finding.</p></div>
+    <div class="card"><h3 style="margin-top:0">Not a final answer</h3>
+      <p class="small">A cross-story lead is a place to start reading — which is exactly why every claim ships with its
+      URLs. Someone still has to read them.</p></div>
+  </div>
+
+  <div class="callout key">
+    <div class="clabel">◆ The takeaway</div>
+    Reading 300 articles to notice the one name that crosses over is the part a person shouldn't have to do by hand.
+    Investigator does the crossover detection mechanically — the bridges, the themes, the brokers, and how well each is
+    corroborated — and hands you back the leads <i>with their sources</i>, so you can spend your time on the part that
+    actually needs judgement.
+  </div>
+
+  <h3>Try it</h3>
+  <p>Investigator is open source. Clone it, point it at a few news queries, and watch the map build:</p>
+  <p>
+    <a class="cta" href="https://github.com/dsivov/investigator" target="_blank" rel="noopener">★ github.com/dsivov/investigator</a>
+  </p>
+<pre><code><span class="cm"># 1) one focused investigation from the command line</span>
+PYTHONPATH=.:src python research/cross_event_investigation.py \
+    --domain sanctions_evasion --period 30d \
+    --event <span class="str">"russia_oil:Russia oil sanctions evasion dark fleet 2026"</span> \
+    --event <span class="str">"china_yuan:China yuan settlement Russia trade sanctions 2026"</span> \
+    --event <span class="str">"iran_drone:Iran Russia military drone supply 2026"</span>
+
+<span class="cm"># 2) or run the full UI (engine :5003 · API :5050 · web :5180)</span>
+INVESTIGATOR_TMFG=1 PYTHONPATH=src:. python -m investigator   <span class="cm"># pipeline engine</span>
+PYTHONPATH=.:src python ui/server.py --port 5050              <span class="cm"># API + reports</span>
+cd ui &amp;&amp; npm install &amp;&amp; npm run dev                          <span class="cm"># → http://localhost:5180</span></code></pre>
+  <p class="small">Full setup, search-source toggles, and the cumulative knowledge base
+  (<code>--analytic_engine_enabled</code>) are documented in the project
+  <a href="https://github.com/dsivov/investigator#readme" target="_blank" rel="noopener">README</a>.</p>
+</section>
+
+</article>
+</main>
+</div>
+
+<footer class="footer">
+  <b>Investigator</b> — finding the hidden threads in news. A plain-language tour of the analysis: bridges, themes,
+  brokers, corroboration, and the domain-hypothesis verdict. Confidence language follows ICD-203 analytic standards.
+  Numbers in the examples are exact counts from specific runs; different runs on the same queries may differ due to LLM
+  non-determinism and news-corpus drift. Open source at
+  <a href="https://github.com/dsivov/investigator" target="_blank" rel="noopener">github.com/dsivov/investigator</a>.
+</footer>
+
+<a href="#" class="backtotop" id="btt">↑ Top</a>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('nav.toc a')), map={};
+  links.forEach(function(a){var id=a.getAttribute('href').slice(1),el=document.getElementById(id); if(el)map[id]=a;});
+  var obs=new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){links.forEach(function(a){a.classList.remove('active');});var a=map[e.target.id];if(a)a.classList.add('active');}
+  });},{rootMargin:'-20% 0px -70% 0px',threshold:0});
+  Object.keys(map).forEach(function(id){obs.observe(document.getElementById(id));});
+  var btt=document.getElementById('btt');
+  window.addEventListener('scroll',function(){btt.classList.toggle('show',window.scrollY>700);});
+})();
+</script>
+</body>
+</html>
