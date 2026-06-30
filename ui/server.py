@@ -251,22 +251,42 @@ def _get_analyzer():
               link is. Ground every statement in the supplied data; never invent
               links or facts.
 
+            You are also given the investigation's HYPOTHESIS -- the domain
+            relevance question the whole investigation is testing. Judge the
+            network specifically in its scope: which of these connections bear on
+            the hypothesis, and do they, taken together, support or undercut it?
+            Weigh only edges that actually speak to the hypothesis; note when a
+            link is merely contextual and does not.
+
             Output GitHub-flavoured Markdown:
             ## Summary  -- 2-3 sentences on the overall shape of the network and
             the main connection(s).
             ## Connections  -- one bullet per link or chain, each phrased as a
             relationship (e.g. "**A** is linked to **D** via **X**, who ...").
             Be specific and concise; no preamble.
+            ## Hypothesis assessment  -- open with a bold ICD-203 confidence
+            verdict on whether the network supports the hypothesis -- one of:
+            **Almost Certainly**, **Highly Likely**, **Likely**, **Roughly Even
+            Chance**, **Unlikely**, **Highly Unlikely**, **Almost Certainly
+            Not** -- then 1-3 sentences citing the SPECIFIC edges/chains that
+            drive the verdict and naming any that run counter or are merely
+            contextual. If no edge in the network bears on the hypothesis, say so
+            plainly and give the lowest-confidence verdict.
             """
+            hypothesis: str = dspy.InputField(
+                desc="The investigation's domain relevance hypothesis (the question being tested)")
             network: str = dspy.InputField(desc="Selected/connector entities, relationships and evidence")
             report: str = dspy.OutputField()
 
         lm = dspy.LM("openai/gpt-4.1", temperature=0.2, max_tokens=1400)
         predictor = dspy.Predict(AnalyseConnections)
 
-        def _run(network: str) -> str:
+        def _run(network: str, hypothesis: str = "") -> str:
             with dspy.context(lm=lm):
-                out = predictor(network=network)
+                out = predictor(
+                    network=network,
+                    hypothesis=hypothesis or "(no explicit hypothesis was supplied for this investigation)",
+                )
             return (out.report or "").strip()
 
         _ANALYZER = _run
@@ -1578,6 +1598,20 @@ def get_enrichment(inv_id):
                     **_enrich_status(inv_id, path)})
 
 
+def _domain_hypothesis(path: Path) -> str:
+    """The investigation's domain relevance hypothesis (from the artifact's
+    ``params.domain``), used to scope the connection analysis. Falls back to the
+    'general' preset, then to an empty string if nothing resolves."""
+    try:
+        d = json.loads(path.read_text())
+        domain = (d.get("params") or {}).get("domain") or "general"
+        key = domain.removeprefix("dom_") if isinstance(domain, str) else "general"
+        preset = dp.PRESETS.get(key) or dp.PRESETS.get("general")
+        return preset.hypothesis if preset else ""
+    except Exception:  # noqa: BLE001 -- hypothesis is best-effort context
+        return ""
+
+
 @app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])
 def analyze_connections(inv_id):
     """LLM summary of how the selected entities interconnect. Only the connected
@@ -1610,7 +1644,7 @@ def analyze_connections(inv_id):
         return _err(503, "llm_unavailable", "Analysis model unavailable (check OPENAI_API_KEY).")
     try:
         network = _describe_connection_network(result)
-        report = analyzer(network)
+        report = analyzer(network, _domain_hypothesis(path))
     except Exception as e:  # noqa: BLE001
         return _err(502, "llm_error", f"Analysis failed: {type(e).__name__}: {e}")
     connected = len({x for e in result["edges"] for x in (e["source"], e["target"])})
