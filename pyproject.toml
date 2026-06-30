@@ -37,6 +37,13 @@ dependencies = [
     "sentence-transformers",
     "python-Levenshtein",
 
+    # News fetch & document parsing (Stage 1 fetch layer + PDF sources)
+    "gnews",
+    "newspaper3k",
+    "googlenewsdecoder",
+    "pymupdf",
+    "lxml_html_clean",  # newspaper3k needs lxml.html.clean, split out of lxml>=5
+
     # Graph & analysis
     "networkx",
     "pyvis",
@@ -50,7 +57,9 @@ dependencies = [
     "coffy",
 
     # Analytics sub-package (lightrag-hku ships its own FastAPI server & client)
-    "lightrag-hku[api]",
+    # Pinned <1.5: 1.5.x drops lightrag.constants.DEFAULT_HISTORY_TURNS, which
+    # investigator.config.settings imports (breaks startup).
+    "lightrag-hku[api]>=1.4,<1.5",
     "fastapi",
     "uvicorn",
     "ascii-colors",
