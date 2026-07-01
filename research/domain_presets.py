@@ -111,6 +111,32 @@ PRESETS: dict[str, DomainPreset] = {
         relevance_threshold=0.55,
         description="Crime incidents + parties: suspects, victims, witnesses, organised crime, fraud",
     ),
+    "product_research": DomainPreset(
+        # Framed as a CANDIDATE-FIT test, not a "reflects the subject" test.
+        # The `general` preset scores an entity by how central it is to the
+        # query subject, which on a product query ranks the reference brand the
+        # buyer wants ALTERNATIVES to at the very top (observed on a real run:
+        # "best android tablets ... alternatives to Apple and Huawei" ranked
+        # APPLE #1 at score 1.0, with the actual Android options at ~0.49), and
+        # admits retailers (Best Buy), review sites (PCMag), accessories, chips
+        # (M3, A16), and unrelated marketing names (artists/studios) as
+        # high-relevance nodes. This wording instead rewards specific, choosable
+        # products that fit the stated need, platform, and constraints, and
+        # explicitly down-ranks excluded brands plus non-product context.
+        hypothesis=(
+            "Is the entity a specific, purchasable PRODUCT -- a named model or "
+            "product line -- that a buyer could realistically choose to satisfy "
+            "the need, use case, platform, and constraints stated in the "
+            "investigation query? Score it highly only when the source text "
+            "presents it as a viable candidate for that need. Treat any brand or "
+            "product the query asks to exclude or find alternatives to as LOW "
+            "relevance, and treat retailers, review publications, companies, "
+            "accessories, and component parts (chips, operating systems) as "
+            "low-relevance context rather than choosable products."
+        ),
+        relevance_threshold=0.5,
+        description="Compare candidate products for a stated buyer need, platform, and constraints",
+    ),
     "general": DomainPreset(
         hypothesis=(
             "Does the entity's documented activity reflect the subject of "
