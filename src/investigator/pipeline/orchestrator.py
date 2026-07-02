@@ -585,6 +585,49 @@ def _is_token_run(short: list[str], long: list[str]) -> bool:
     return n > 0 and any(long[i:i + n] == short for i in range(len(long) - n + 1))
 
 
+# --- product_research: constraint-aware brand exclusion (prototype) ----------
+# ISOLATION CONTRACT: everything below only ever fires when domain ==
+# "product_research". For every OSINT domain the callers guard on that string,
+# so `_excluded_brands_from_query` is never invoked and the pipeline is
+# byte-for-byte unchanged. This is a nice-to-have for product-comparison queries,
+# not a change to the core investigator behaviour.
+_BRAND_EXCLUDE_RE = re.compile(
+    r"\b(?:alternatives?\s+to|instead\s+of|other\s+than|besides|rather\s+than|"
+    r"not\s+(?:from|by)|excluding|except)\s+(.+?)"
+    r"(?:\s+(?:for|in|on|with|under|that|which|because)\b|[.?!]|$)",
+    re.I,
+)
+_BRAND_EXCLUDE_PENALTY = 0.1
+
+
+def _excluded_brands_from_query(query: str | None) -> set[str]:
+    """Brands a product query asks for ALTERNATIVES to (e.g. '... alternatives
+    to Apple and Huawei' -> {'APPLE','HUAWEI'}). Regex prototype; a production
+    version would use a proper query-intent parser."""
+    if not query:
+        return set()
+    out: set[str] = set()
+    for m in _BRAND_EXCLUDE_RE.finditer(query):
+        for part in re.split(r"\s*(?:,|/|\band\b|\bor\b)\s*", m.group(1)):
+            tok = part.strip().upper()
+            if tok and len(tok.split()) <= 3:
+                out.add(tok)
+    return out
+
+
+def _entity_matches_excluded_brand(identifier, labels, excluded: set[str]) -> bool:
+    """True when the entity's name or a label carries an excluded brand as a
+    whole-word token, so 'APPLE PENCIL' / 'HUAWEI MATEPAD' match but unrelated
+    entities do not."""
+    if not excluded:
+        return False
+    toks: set[str] = set()
+    for s in [identifier, *(labels or [])]:
+        if isinstance(s, str):
+            toks.update(s.upper().replace("-", " ").split())
+    return any(all(w in toks for w in b.split()) for b in excluded)
+
+
 def match_query_to_entity(subject, entities, representatives, graph, *, allow_name_in_query=True):
     """Match a subject name to a canonical entity id, preferring one that is
     actually in the affiliation graph. Returns ``None`` when nothing matches
@@ -1033,6 +1076,41 @@ class InvestigationPipeline:
                 f"entities; falling back to most-connected node '{root}' as root (subject may be absent from the data)"
             )
 
+        # product_research ONLY: if the resolved root is a brand the query asks
+        # for ALTERNATIVES to, re-root on the best non-excluded hub so relevance
+        # doesn't radiate from the very brand being excluded. `excluded_brands`
+        # stays empty for every other domain, so this and the demotion below are
+        # complete no-ops for the OSINT platform.
+        # NOTE: a theme+prob-ranked anchor was tried and REGRESSED (it re-rooted
+        # onto a chip / phone brand and imported carrier/geo noise); the plain
+        # highest-degree non-excluded anchor surfaced genuine drawing tablets, so
+        # that is what ships. Reliable exclusion needs multi-seed relevance, out
+        # of scope for this nice-to-have.
+        excluded_brands: set[str] = set()
+        if domain == "product_research":
+            try:
+                excluded_brands = _excluded_brands_from_query(investigation_query)
+                root_node = next((n for n in merged_entities if n["identifier"] == root), None)
+                if excluded_brands and root and _entity_matches_excluded_brand(
+                    root, (root_node or {}).get("labels"), excluded_brands
+                ):
+                    deg = dict(investigator.to_undirected().degree())
+                    cands = sorted(
+                        (n for n in merged_entities
+                         if n.get("type") != "event"
+                         and not _entity_matches_excluded_brand(
+                             n["identifier"], n.get("labels"), excluded_brands)),
+                        key=lambda n: -deg.get(n["identifier"], 0),
+                    )
+                    if cands:
+                        log.info(
+                            f"product_research brand-exclusion: root '{root}' is excluded "
+                            f"{sorted(excluded_brands)}; re-rooting on '{cands[0]['identifier']}'"
+                        )
+                        root = cands[0]["identifier"]
+            except Exception as e:  # noqa: BLE001 -- never break a run
+                log.warning(f"brand-exclusion re-root skipped: {type(e).__name__}: {e}")
+
         # Optional TMFG construction (Phase-1 research prototype). Builds a
         # chordal+planar maximally-filtered graph from `investigator`, decomposing
         # it into (p-3) tetrahedra glued by triangular separators -- the cliques
@@ -1089,6 +1167,20 @@ class InvestigationPipeline:
             root=root,
             keep_low_prob_evidenced=bool(os.environ.get("INVESTIGATOR_BP_KEEP_DROPPED")),
         )
+
+        # product_research ONLY: floor excluded-brand entities so the brand the
+        # query wants alternatives to cannot top the ranking. `excluded_brands`
+        # is empty for all other domains, so this loop does nothing for them.
+        if excluded_brands:
+            demoted = 0
+            for n in merged_entities:
+                if _entity_matches_excluded_brand(n["identifier"], n.get("labels"), excluded_brands):
+                    n["score"] = float(n.get("score") or 0.0) * _BRAND_EXCLUDE_PENALTY
+                    demoted += 1
+            log.info(
+                f"product_research brand-exclusion: demoted {demoted} excluded-brand "
+                f"entities (x{_BRAND_EXCLUDE_PENALTY})"
+            )
 
         # Phase-2: junction-tree belief propagation over the TMFG. Runs only if
         # TMFG was built (INVESTIGATOR_TMFG=1). Fuses each entity's evidence prior
