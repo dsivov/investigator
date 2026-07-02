@@ -22,6 +22,7 @@ importing this module.
 from __future__ import annotations
 
 import asyncio
+import threading
 import json
 import os
 import re
@@ -693,6 +694,22 @@ class InvestigationPipeline:
         self.cumulative_kg = cumulative_kg
         self.analytics_enabled = analytics_enabled
         self.debug_mode = debug_mode
+        # M2 concurrency: one lock per session_id serialises the stateful run
+        # (load -> merge -> save) so two concurrent same-session requests can't
+        # interleave and clobber each other's state. Distinct sessions run in
+        # parallel. threading.Lock (not asyncio.Lock) because Flask[async] runs
+        # each request in its own event loop/thread, so an asyncio.Lock wouldn't
+        # span requests. The guard protects the lock-dict itself.
+        self._session_locks: dict[str, threading.Lock] = {}
+        self._session_locks_guard = threading.Lock()
+
+    def _session_lock(self, session_id: str) -> threading.Lock:
+        with self._session_locks_guard:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._session_locks[session_id] = lock
+            return lock
 
     async def run(self, payload: dict) -> dict:
         """Top-level dispatch: parse + branch + error handling."""
@@ -716,14 +733,24 @@ class InvestigationPipeline:
             if not investigation_id:
                 return {"status": "error", "message": "'session_id' is required"}
 
-            return await self._standard_pipeline(
-                investigation_id=investigation_id,
-                investigation_query=investigation_query,
-                investigation_subject=investigation_subject,
-                domain=domain,
-                text=text,
-                run=run,
-            )
+            # M2: serialise concurrent same-session requests. Non-blocking spin
+            # so we yield to the event loop while another request for THIS
+            # session holds the lock (holds can last minutes over the LLM work);
+            # distinct sessions never contend.
+            lock = self._session_lock(investigation_id)
+            while not lock.acquire(blocking=False):
+                await asyncio.sleep(0.1)
+            try:
+                return await self._standard_pipeline(
+                    investigation_id=investigation_id,
+                    investigation_query=investigation_query,
+                    investigation_subject=investigation_subject,
+                    domain=domain,
+                    text=text,
+                    run=run,
+                )
+            finally:
+                lock.release()
         except Exception as e:
             if self.debug_mode:
                 raise

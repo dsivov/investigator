@@ -7,23 +7,34 @@ TTL or LRU + a background sweeper so long-running servers don't leak.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 
 class SessionStore:
-    """Maps a session/investigation id to a single Expert instance."""
+    """Maps a session/investigation id to a single Expert instance.
+
+    M2 concurrency: guarded by a lock so concurrent Flask requests (each on its
+    own event loop/thread under Flask[async]) can't race the shared dict on the
+    get-then-set path.
+    """
 
     def __init__(self) -> None:
         self._experts: dict[str, Any] = {}
+        self._lock = threading.Lock()
 
     def get(self, session_id: str) -> Any | None:
-        return self._experts.get(session_id)
+        with self._lock:
+            return self._experts.get(session_id)
 
     def set(self, session_id: str, expert: Any) -> None:
-        self._experts[session_id] = expert
+        with self._lock:
+            self._experts[session_id] = expert
 
     def __contains__(self, session_id: str) -> bool:
-        return session_id in self._experts
+        with self._lock:
+            return session_id in self._experts
 
     def clear(self) -> None:
-        self._experts.clear()
+        with self._lock:
+            self._experts.clear()
