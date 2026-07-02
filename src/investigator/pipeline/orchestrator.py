@@ -318,6 +318,11 @@ async def extract_entities_from_chunk(json_chunk, original_chunk, working_state,
         else:
             working_state["dirty_node_names"].append(list(dict.fromkeys(dirty_node_names)))
     except Exception as e:
+        # M3 / partial-failure visibility: a chunk that throws (timeout, rate
+        # limit, malformed LLM output) used to vanish silently while the run
+        # still reported success. Count it so the response can surface it.
+        # Safe to mutate here: chunk tasks run cooperatively on one event loop.
+        working_state["failed_chunks"] = working_state.get("failed_chunks", 0) + 1
         log.error(f"Error during entity extraction from chunk: {e}")
         return [], [], []
     return entities_group_by_chunk, all_entities_dicts, affiliation_dicts
@@ -375,6 +380,9 @@ async def named_entities_extractor_task(investigation_id: str, text: str, workin
             json_chunks.append(json.dumps({"text": text_chunk}))
 
     log.info(f"Number of original chunks: {len(json_chunks)}")
+    # Partial-failure visibility: total chunks attempted (failures counted in
+    # extract_entities_from_chunk); surfaced in the response's `extraction` block.
+    working_state["total_chunks"] = len(json_chunks)
     if len(json_chunks) == 0:
         log.warning("No chunks to process for entity extraction")
         return all_entities_dicts, affiliation_dicts, False
@@ -1292,11 +1300,27 @@ class InvestigationPipeline:
             except Exception as e:  # noqa: BLE001 -- never break the response
                 log.warning(f"[Phase 3] network-analysis payload failed: {type(e).__name__}: {e}")
 
+        # Partial-failure visibility: report how many source chunks were
+        # attempted vs silently dropped, so a caller can tell a complete run
+        # from one built on a subset of the evidence.
+        total_chunks = working_state.get("total_chunks", 0)
+        failed_chunks = working_state.get("failed_chunks", 0)
+        if failed_chunks:
+            log.warning(
+                f"Partial extraction: {failed_chunks}/{total_chunks} chunks failed "
+                f"for session {investigation_id} — graph is built on the remaining "
+                f"{total_chunks - failed_chunks}."
+            )
         return {
             "status": "success",
             "session_id": str(investigation_id),
             "nodes": response_nodes,
             "edges": response_edges,
+            "extraction": {
+                "chunks": total_chunks,
+                "extracted": total_chunks - failed_chunks,
+                "failed": failed_chunks,
+            },
             **({"prior_context": prior_context} if prior_context else {}),
             **network_analysis,
         }
