@@ -17,7 +17,7 @@ from investigator.analytics.llm import make_openai_llm
 from investigator.api import create_api_blueprint, register_error_handlers
 from investigator.config import global_args
 from investigator.pipeline.orchestrator import InvestigationPipeline
-from investigator.state import InvestigationStateRepo
+from investigator.state import SqliteInvestigationStateRepo
 
 
 def create_app(*, debug_mode: bool = False) -> Flask:
@@ -35,7 +35,9 @@ def create_app(*, debug_mode: bool = False) -> Flask:
         if analytics_enabled
         else None
     )
-    state_repo = InvestigationStateRepo()
+    # Durable SQLite-backed session state (no-wipe by default) — replaces the
+    # coffy JSON-file repo that was cleared on every restart (roadmap P0/M1).
+    state_repo = SqliteInvestigationStateRepo()
     pipeline = InvestigationPipeline(
         state_repo=state_repo,
         cumulative_kg=cumulative_kg,
