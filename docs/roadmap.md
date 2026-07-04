@@ -7,6 +7,13 @@
 > corroboration, configurable search sources, and enrichment. The current
 > forward-looking direction is the standing CEP / impact monitor
 > ([cep-monitoring-discussion.html](cep-monitoring-discussion.html)).
+>
+> **Hardening update (2026-07):** P0 **M1** (durable SQLite state) and **M2**
+> (concurrency) are done, and the **P1 correctness/trust** tier is complete —
+> request validation, partial-failure visibility, LLM retry/timeout, and the
+> S1/S2 merge/evidence-scoring concerns (already resolved in prior refactors).
+> See [`CHANGELOG.md`](CHANGELOG.md). Remaining P0: auth + rate limiting,
+> production server.
 
 ---
 
@@ -73,8 +80,8 @@ What's **fragile or questionable** (candidates for Phase 3 hardening):
 
 | # | Concern | Where | Risk |
 |---|---|---|---|
-| S1 | **Merge logic is type-dispatch + string-join.** Entity field values get `","`/`":"`-joined into strings; ordering/dtype-dependent. Lossy and hard to reason about. | `dedup.py` merge_list_of_dicts / merge_states / merge_duplicates | Silent data degradation across runs |
-| S2 | **Evidence t-test is statistically thin.** `ttest_1samp` over score×confidence with `p<0.3`, special-cased for n==1. Not a sound significance test at these sample sizes. | `operations.py:39` rescore_evidences | Arbitrary leaf-node inclusion |
+| S1 | ~~**Merge logic is type-dispatch + string-join.** Entity field values get `","`/`":"`-joined into strings; lossy and order-dependent.~~ **RESOLVED:** merge now does a typed **distinct-union of clean lists** via `merge_data_fields` (`dedup.py`), explicitly not `":"`-joined; the old `merge_list_of_dicts`/`merge_states`/`merge_duplicates` were removed. | `dedup.py` `merge_data_fields` | — |
+| S2 | ~~**Evidence t-test is statistically thin.** `ttest_1samp` over score×confidence with `p<0.3`, special-cased for n==1.~~ **RESOLVED:** the t-test was replaced by `evidence_probability` / `assess_evidence` — a confidence-weighted **signed probability** with a multi-source corroboration boost (TRIANGULATION_REVIEW F10); `rescore_evidences` was removed. | `operations.py` `evidence_probability` | — |
 | S3 | **Identifier clustering only triggers at ≥200 identifiers.** Below that, all identifiers go to one LLM dedup call. | `dedup.py` group_identifiers_for_representative | Large inputs OK; mid inputs send big prompts |
 | S4 | **No schema validation on LLM output.** Relies on dspy/pydantic coercion; malformed structures surface as downstream KeyErrors (cf. the C3 bug). | pipeline-wide | Brittle to model drift |
 | S5 | **Relevance scores are LLM self-reported**, then thresholded. No calibration. | NamedEntitiesRecognition | Threshold tuning is guesswork |
@@ -126,22 +133,22 @@ finding code where applicable. Effort: S<½day · M<2days · L>2days.
 
 ### P0 — Blocks any multi-user / real deployment
 
-| Item | Why | Finding | Effort |
-|---|---|---|---|
-| **Real persistence** (Postgres/SQLite) behind `InvestigationStateRepo` | Today state is one JSON file, wiped on every restart. The repo abstraction is already in place — swap the impl. | M1 | M |
-| **Stop wiping state on startup** | `clear_on_start=True` destroys all sessions on restart. Default it off. | M1 | S |
-| **Concurrency safety** | `SessionStore` dict + coffy file + global `dspy.configure` are shared, unlocked, across Flask requests. Concurrent same-session calls corrupt state. | M2 | M |
-| **AuthN/AuthZ + rate limiting** | Route is fully public; anyone can run unbounded LLM jobs (cost/DoS). Config already carries JWT knobs. | — | M |
-| **Production server** | `app.run()` is dev-only. Front with gunicorn (sync workers won't fit `async` routes well) → strongly consider the FastAPI move below. | — | M |
+| Item | Why | Finding | Effort | Status |
+|---|---|---|---|---|
+| **Real persistence** (Postgres/SQLite) behind `InvestigationStateRepo` | Today state is one JSON file, wiped on every restart. The repo abstraction is already in place — swap the impl. | M1 | M | ✅ **DONE** `68c3844` — `SqliteInvestigationStateRepo` (WAL, durable, migration) |
+| **Stop wiping state on startup** | `clear_on_start=True` destroys all sessions on restart. Default it off. | M1 | S | ✅ **DONE** `68c3844` — no-wipe default (`INVESTIGATOR_CLEAR_ON_START` to opt in) |
+| **Concurrency safety** | `SessionStore` dict + coffy file + global `dspy.configure` are shared, unlocked, across Flask requests. Concurrent same-session calls corrupt state. | M2 | M | ✅ **DONE** `7846fbd` — per-session lock + guarded `SessionStore` (dspy already scoped via `dspy.context`) |
+| **AuthN/AuthZ + rate limiting** | Route is fully public; anyone can run unbounded LLM jobs (cost/DoS). Config already carries JWT knobs. | — | M | ⏳ open |
+| **Production server** | `app.run()` is dev-only. Front with gunicorn (sync workers won't fit `async` routes well) → strongly consider the FastAPI move below. | — | M | ⏳ open |
 
 ### P1 — Correctness & trust
 
-| Item | Why | Finding | Effort |
-|---|---|---|---|
-| **Enforce request validation** | `api/schemas.py` pydantic models exist but aren't enforced; bad input silently coerces to defaults. | schemas | S |
-| **Stop silent per-chunk data loss** | `extract_entities_from_chunk` returns `[],[],[]` on any exception → chunks vanish with no signal. Surface partial-failure counts in the response. | M3 | S |
-| **LLM ret/timeout + output validation** | No retries/timeouts on dspy calls; no validation of structure. Add tenacity + guard rails. | S4 | M |
-| **Revisit merge + evidence scoring** | S1/S2 — decide if string-join merge and the t-test are acceptable, or replace with explicit field-merge rules + a defensible confidence aggregation. | S1, S2 | L |
+| Item | Why | Finding | Effort | Status |
+|---|---|---|---|---|
+| **Enforce request validation** | `api/schemas.py` pydantic models exist but aren't enforced; bad input silently coerces to defaults. | schemas | S | ✅ **DONE** `85d7c22` — validates `GetNodesRequest`, returns 400 with field errors |
+| **Stop silent per-chunk data loss** | `extract_entities_from_chunk` returns `[],[],[]` on any exception → chunks vanish with no signal. Surface partial-failure counts in the response. | M3 | S | ✅ **DONE** `85d7c22` — `extraction:{chunks,extracted,failed}` block + warning log |
+| **LLM ret/timeout + output validation** | No retries/timeouts on dspy calls; no validation of structure. Add tenacity + guard rails. | S4 | M | ✅ **DONE** `1d09662` — env-tunable timeout + `num_retries` on `dspy.LM`; typed pydantic signatures validate output |
+| **Revisit merge + evidence scoring** | S1/S2 — replace string-join merge + the t-test with explicit field-merge rules + a defensible confidence aggregation. | S1, S2 | L | ✅ **DONE** (prior refactors) — `merge_data_fields` (typed union) + `evidence_probability` (signed prob); see S1/S2 above |
 
 ### P2 — Architecture & deployability
 
