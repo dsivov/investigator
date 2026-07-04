@@ -288,58 +288,77 @@ Three processes:
 
 ---
 
-## Running locally
+## Running it
 
-### Prerequisites
+The fastest path is Docker; a manual setup is right below it. Either way you'll
+need an **OpenAI API key**.
 
-- **Python** environment with the pipeline dependencies: `dspy`, `networkx`,
-  `flask`, `python-dotenv`, `gnews`, `newspaper3k`, `googlenewsdecoder`,
-  `semhash`, `wordllama`, `matplotlib`, `pymupdf`.
-- The engine is **self-contained**: run it with `PYTHONPATH=src` (the package
-  lives in `src/investigator`); no external sibling packages required.
-- **Node.js** (18+) for the frontend.
-- An **OpenAI API key**.
+### Quick start with Docker
 
-### 1. Secrets
+Runs all three services (engine, UI backend, frontend) in one container.
 
-Copy the template and fill in your key (the real `.env` is git-ignored):
+```sh
+cp .env.example .env          # then edit .env and set OPENAI_API_KEY
+docker compose up --build     # reads OPENAI_API_KEY from your shell or .env
+```
+
+Or without compose:
+
+```sh
+docker build -t investigator .
+docker run --rm -p 5003:5003 -p 5050:5050 -p 5180:5180 \
+  -e OPENAI_API_KEY=sk-... -v investigator-data:/data investigator
+```
+
+Then open **http://localhost:5180**. Durable session state and the cumulative
+knowledge graph persist in the `investigator-data` volume.
+
+### Manual setup
+
+**Prerequisites:** Python **3.12** (3.11+ works), **Node.js 18+**, and an
+**OpenAI API key**.
+
+**1. Install.** A virtualenv keeps the heavy ML stack isolated; `pip install -e .`
+pulls the full pipeline from `pyproject.toml` (the one source of truth for deps):
+
+```sh
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+
+**2. Secrets.** Copy the template and fill in your key (the real `.env` is
+git-ignored):
 
 ```sh
 cp .env.example .env
 # edit .env and set OPENAI_API_KEY
 ```
 
-### 2. Start the pipeline engine (port 5003)
+**3. Start the pipeline engine (port 5003):**
 
 ```sh
 INVESTIGATOR_TMFG=1 INVESTIGATOR_VIZ=1 INVESTIGATOR_DISABLE_CACHE=1 \
-  PYTHONPATH=src:. \
-  python -m investigator
+  PYTHONPATH=src:. python -m investigator
 ```
 
-`INVESTIGATOR_TMFG=1` enables the theme/network-analysis stages.
+`INVESTIGATOR_TMFG=1` enables the theme/network-analysis stages. Add
+`--analytic_engine_enabled` to accumulate finished investigations into the
+cumulative knowledge graph (so the **Knowledge Base** tab has data).
 
-### 3. Start the UI backend (port 5050)
+**4. Start the UI backend (port 5050):**
 
 ```sh
 PYTHONPATH=.:src python ui/server.py --port 5050
 ```
 
-It auto-discovers any past investigation artifacts under
-`news_investigations/cross_event/` and exposes them via the API. Add
-`--host 0.0.0.0` to reach it from another machine on the LAN (the Vite dev
-server already binds all interfaces).
+It auto-discovers past investigation artifacts under
+`news_investigations/cross_event/`. Add `--host 0.0.0.0` to reach it from another
+machine on the LAN (the Vite dev server already binds all interfaces).
 
-To accumulate finished investigations into the cumulative knowledge graph (so
-the **Knowledge Base** tab has data), start the **engine** with
-`--analytic_engine_enabled`.
-
-### 4. Start the frontend (port 5180)
+**5. Start the frontend (port 5180):**
 
 ```sh
-cd ui
-npm install
-npm run dev          # serves http://localhost:5180, proxies /api -> :5050
+cd ui && npm install && npm run dev   # http://localhost:5180, proxies /api -> :5050
 ```
 
 Open **http://localhost:5180**.

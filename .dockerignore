@@ -1,0 +1,14 @@
+# Keep the build context small + reproducible — don't ship local state/artifacts.
+.git
+.venv
+venv
+**/__pycache__
+**/*.pyc
+ui/node_modules
+ui/dist
+news_investigations
+.env
+*.sqlite3
+*.sqlite3-*
+docs/blog_media
+cg

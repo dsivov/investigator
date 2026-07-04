@@ -7,7 +7,7 @@ name = "investigator"
 version = "1.0.0"
 description = "Triangulation Graph Server — entity/edge/evidence extraction for compliance & OSINT investigations"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "dsivov", email = "dsivov@gmail.com" }]
 
@@ -28,7 +28,7 @@ dependencies = [
 
     # Embeddings / dedup / chunking
     "model2vec",
-    "wordllama",
+    "wordllama>=0.4",  # 0.4 adds WordLlama.load_m2v (used by the dedup layer); older versions crash
     "semhash",
     "vicinity",
     "langchain-text-splitters",
@@ -51,7 +51,7 @@ dependencies = [
     "matplotlib",
     "scipy",
     "pandas",
-    "numpy",
+    "numpy>=2",  # wordllama>=0.4 requires numpy 2.x; pin the floor to avoid an ABI split
 
     # Storage
     "coffy",

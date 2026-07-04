@@ -1,0 +1,20 @@
+# One-command run of the full investigator stack.
+#   OPENAI_API_KEY=sk-...  docker compose up --build
+# Then open http://localhost:5180
+services:
+  investigator:
+    build: .
+    image: investigator
+    ports:
+      - "5003:5003"   # pipeline engine
+      - "5050:5050"   # UI backend (REST + SSE)
+      - "5180:5180"   # frontend
+    environment:
+      # Required — the engine + UI query-refinement need an OpenAI key.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?set OPENAI_API_KEY in your shell or a .env file}
+    volumes:
+      # Persist durable session state + the cumulative knowledge graph.
+      - investigator-data:/data
+
+volumes:
+  investigator-data:
