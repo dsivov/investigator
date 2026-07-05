@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
@@ -19,10 +21,16 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
 from openai import OpenAI  # noqa: E402
 
+# Put research/ on the path so the source functions can import their sibling
+# `source_ingest` (newspaper3k body extraction). Without this, fetch_gdelt /
+# fetch_websearch raise ModuleNotFoundError and silently return nothing — which
+# left claim verification running on Wikipedia alone.
+sys.path.insert(0, os.path.dirname(__file__))
+
 try:  # robust to both import contexts (repo-root on path vs research/ on path)
-    from research.search_sources import fetch_gdelt, fetch_wikipedia
+    from research.search_sources import fetch_gdelt, fetch_websearch, fetch_wikipedia
 except ImportError:  # ui/server.py puts research/ itself on sys.path
-    from search_sources import fetch_gdelt, fetch_wikipedia  # noqa: E402
+    from search_sources import fetch_gdelt, fetch_websearch, fetch_wikipedia  # noqa: E402
 
 _MODEL = os.environ.get("INVESTIGATOR_CLAIM_MODEL", "gpt-4o-mini")
 # How many distinct sources on the winning side are needed before the verdict is
@@ -64,7 +72,7 @@ def plan_queries(claim: str, seed_entities: list[str] | None = None) -> dict:
 
 
 def _classify(claim: str, item: dict) -> dict:
-    snippet = f"{item.get('title','')} — {(_text(item))[:800]}".strip()
+    snippet = f"{item.get('title','')} — {_passage(_text(item), claim)}".strip()
     system = ("You judge whether a snippet SUPPORTS, REFUTES, or is NEUTRAL toward a specific "
               "claim, based ONLY on the snippet. NEUTRAL if off-topic or it merely mentions the "
               "entities without bearing on the claim.")
@@ -81,14 +89,38 @@ def _text(item: dict) -> str:
 
 
 def _source_of(item: dict) -> str:
-    # Prefer the publisher recorded in metadata; else the url host; else the source tag.
-    md = (item.get("metadata") or {}).get("doc_metadata") or {}
-    if md.get("publisher"):
-        return str(md["publisher"])
-    url = item.get("url") or item.get("doc_id") or ""
+    # search_sources records carry a flat `publisher` + `real_url`; artifact
+    # evidence nests publisher under metadata.doc_metadata. Try both.
+    pub = item.get("publisher") or ((item.get("metadata") or {}).get("doc_metadata") or {}).get("publisher")
+    if pub:
+        return str(pub)
+    url = item.get("real_url") or item.get("url") or item.get("doc_id") or ""
     if "://" in url:
         return url.split("/")[2]
     return str(item.get("source") or "unknown")
+
+
+def _passage(text: str, claim: str, window: int = 900) -> str:
+    """Return the ~window-char slice of `text` most relevant to the claim.
+
+    Long docs (e.g. an 80k-char Wikipedia article) buried the on-topic content
+    past the intro, so classifying `text[:800]` read NEUTRAL. Slide a window and
+    pick the one with the most claim-term hits.
+    """
+    text = text or ""
+    if len(text) <= window:
+        return text
+    terms = {w.lower() for w in re.findall(r"[A-Za-z]{4,}", claim)}
+    if not terms:
+        return text[:window]
+    low = text.lower()
+    best_pos, best_score = 0, -1
+    for pos in range(0, len(text) - window, 200):
+        seg = low[pos:pos + window]
+        score = sum(seg.count(t) for t in terms)
+        if score > best_score:
+            best_score, best_pos = score, pos
+    return text[best_pos:best_pos + window]
 
 
 def _verdict_label(tempered_net: float) -> str:
@@ -104,7 +136,7 @@ def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_que
 
     def _fetch(q):
         out = []
-        for fn, n in ((fetch_gdelt, max_per_query), (fetch_wikipedia, 2)):
+        for fn, n in ((fetch_gdelt, max_per_query), (fetch_websearch, 2), (fetch_wikipedia, 2)):
             try:
                 out += fn(q, n)
             except Exception:  # noqa: BLE001 -- a flaky source must not sink the verdict
@@ -118,7 +150,7 @@ def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_que
     # Dedup by url|title, keep only items with text.
     seen, uniq = set(), []
     for it in items:
-        key = it.get("url") or it.get("doc_id") or it.get("title")
+        key = it.get("real_url") or it.get("url") or it.get("doc_id") or it.get("title")
         if key and key not in seen and _text(it).strip():
             seen.add(key); uniq.append(it)
 
@@ -143,8 +175,8 @@ def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_que
         conf = float(c.get("confidence") or 0.0)
         src = _source_of(it)
         row = {"source": src, "title": it.get("title", "")[:120],
-               "url": it.get("url") or it.get("doc_id", ""), "confidence": round(conf, 2),
-               "quote": (c.get("quote") or "")[:200]}
+               "url": it.get("real_url") or it.get("url") or it.get("doc_id", ""),
+               "confidence": round(conf, 2), "quote": (c.get("quote") or "")[:200]}
         ev.get(stance, ev["NEUTRAL"]).append(row)
         if stance == "SUPPORTS":
             sup_w += conf; sup_src.add(src)
