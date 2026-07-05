@@ -1863,6 +1863,35 @@ def upload_sources():
 @app.route("/api/investigations", methods=["POST"])
 def create_investigation():
     body = request.get_json(silent=True) or {}
+
+    # Claim mode (additive, gated): when the body carries a `claim`, expand it
+    # into balanced SUPPORT + REFUTE event-threads (via the claim_verify planner)
+    # and run them through the unchanged multi-event pipeline, so the graph is
+    # built on both-sides evidence. The normalized assertion becomes the
+    # relevance hypothesis. Absent `claim`, everything below is unchanged.
+    claim_text = (body.get("claim") or "").strip()
+    claim_meta = None
+    if claim_text:
+        try:
+            from claim_verify import plan_queries
+        except ImportError:
+            from research.claim_verify import plan_queries
+        try:
+            plan = plan_queries(claim_text)
+        except Exception as e:  # noqa: BLE001
+            return _err(502, "claim_planning_failed", f"Could not plan searches for the claim: {e}")
+        assertion = plan.get("assertion") or claim_text
+        gen_threads = [{"name": f"support_{i + 1}", "query": q}
+                       for i, q in enumerate(plan.get("support", []))]
+        gen_threads += [{"name": f"refute_{i + 1}", "query": q}
+                        for i, q in enumerate(plan.get("refute", []))]
+        if not gen_threads:
+            return _err(502, "claim_planning_failed", "Claim produced no search angles.")
+        body = {**body, "kind": "multi", "threads": gen_threads,
+                "domain": body.get("domain") or "general",
+                "hypothesisOverride": assertion}
+        claim_meta = {"claim": claim_text, "assertion": assertion}
+
     kind = body.get("kind", "multi")
     if kind not in ("single", "multi"):
         return _err(400, "validation_failed", "kind must be 'single' or 'multi'", field="kind")
@@ -1933,10 +1962,13 @@ def create_investigation():
                 }), 200
 
     inv_id = f"inv_{uuid.uuid4().hex[:10]}"
-    spec = {"title": " · ".join(t["name"] for t in threads), "kind": kind,
+    spec = {"title": (claim_meta["claim"][:60] if claim_meta else " · ".join(t["name"] for t in threads)),
+            "kind": kind,
             "threads": threads, "domain": domain_key, "period": period, "advanced": adv,
             "gnewsEnabled": gnews_enabled, "sources": search_srcs,
             "extraSources": {"urls": extra_urls, "pdfs": extra_pdf_ids}}
+    if claim_meta:
+        spec["claim"] = claim_meta  # marks claim mode; used by the claim-verdict pass
 
     # Build the subprocess command line that drives cross_event_investigation.py
     cmd = [sys.executable, str(REPO / "research" / "cross_event_investigation.py"),
