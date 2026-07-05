@@ -1634,6 +1634,53 @@ def claim_verify_route():
         return _err(502, "claim_verify_error", f"Claim verification failed: {type(e).__name__}: {e}")
 
 
+@app.route("/api/investigations/<inv_id>/claim-verdict", methods=["GET"])
+def claim_verdict(inv_id):
+    """Whole-investigation claim verdict: stance-classify the graph's collected
+    evidence toward the claim and aggregate to an ICD-203 verdict. Uses the deep
+    investigation evidence (top entities) rather than a fresh search. The claim
+    comes from ?claim=, else the investigation's stored claim/assertion."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    claim = (request.args.get("claim") or "").strip()
+    if not claim:
+        job = JOBS.get(inv_id)
+        if job:
+            claim = ((job.spec.get("claim") or {}).get("assertion") or "").strip()
+    try:
+        d = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        return _err(500, "artifact_read_failed", "Could not read the investigation artifact.")
+    if not claim:
+        claim = (((d.get("spec") or {}).get("claim") or {}).get("assertion")
+                 or (d.get("params") or {}).get("hypotests") or "").strip()
+    if not claim:
+        return _err(400, "claim_required", "No claim on this investigation; pass ?claim=…")
+
+    nodes = (d.get("final_merged_graph") or {}).get("nodes") or []
+    ent = sorted([n for n in nodes if n.get("type") == "entity" and n.get("evidence")],
+                 key=lambda x: -float(x.get("score") or 0))[:25]
+    items = []
+    for n in ent:
+        for rec in (n.get("evidence") or [])[:3]:
+            texts = rec.get("evidence")
+            text = " ".join(texts) if isinstance(texts, list) else str(texts or "")
+            items.append({"title": n.get("identifier", ""), "text": text,
+                          "metadata": rec.get("metadata"),
+                          "real_url": rec.get("doc_id"), "doc_id": rec.get("doc_id")})
+    try:
+        from claim_verify import verdict_over_items
+    except ImportError:
+        from research.claim_verify import verdict_over_items
+    try:
+        result = verdict_over_items(claim, items)
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "claim_verdict_error", f"Claim verdict failed: {type(e).__name__}: {e}")
+    result["investigation_id"] = inv_id
+    return jsonify(result)
+
+
 @app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])
 def analyze_connections(inv_id):
     """LLM summary of how the selected entities interconnect. Only the connected

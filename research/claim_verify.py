@@ -134,6 +134,52 @@ def _verdict_label(tempered_net: float) -> str:
     return "Almost Certainly Not"
 
 
+def verdict_over_items(claim: str, items: list[dict], max_items: int = 60) -> dict:
+    """Stance-classify already-fetched items toward the claim and aggregate to an
+    ICD-203 verdict. Used for the whole-investigation verdict, where the evidence
+    comes from the graph rather than a fresh search (so no planning/retrieval)."""
+    items = [it for it in items if _text(it).strip()][:max_items]
+
+    def _safe(it):
+        try:
+            return _classify(claim, it), it
+        except Exception:  # noqa: BLE001
+            return None, it
+
+    sup_w = ref_w = 0.0
+    sup_src, ref_src = set(), set()
+    ev = {"SUPPORTS": [], "REFUTES": [], "NEUTRAL": []}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for c, it in pool.map(_safe, items):
+            if c is None:
+                continue
+            stance = c.get("stance", "NEUTRAL")
+            conf = float(c.get("confidence") or 0.0)
+            src = _source_of(it)
+            row = {"source": src, "title": str(it.get("title", ""))[:120],
+                   "url": it.get("real_url") or it.get("doc_id", ""),
+                   "confidence": round(conf, 2), "quote": (c.get("quote") or "")[:200]}
+            ev.get(stance, ev["NEUTRAL"]).append(row)
+            if stance == "SUPPORTS":
+                sup_w += conf; sup_src.add(src)
+            elif stance == "REFUTES":
+                ref_w += conf; ref_src.add(src)
+
+    tot = sup_w + ref_w
+    net = (sup_w - ref_w) / tot if tot else 0.0
+    win_sources = len(sup_src) if net >= 0 else len(ref_src)
+    tempered = net * min(1.0, win_sources / _SOURCES_FOR_FULL)
+    return {
+        "claim": claim, "verdict": _verdict_label(tempered),
+        "net": round(net, 3), "tempered_net": round(tempered, 3),
+        "counts": {"snippets": len(items), "supports": len(ev["SUPPORTS"]),
+                   "refutes": len(ev["REFUTES"]), "neutral": len(ev["NEUTRAL"]),
+                   "support_sources": len(sup_src), "refute_sources": len(ref_src)},
+        "support": sorted(ev["SUPPORTS"], key=lambda r: -r["confidence"])[:10],
+        "refute": sorted(ev["REFUTES"], key=lambda r: -r["confidence"])[:10],
+    }
+
+
 def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_query: int = 3) -> dict:
     """Verify a claim end-to-end. Returns a structured verdict dict."""
     plan = plan_queries(claim, seed_entities)
