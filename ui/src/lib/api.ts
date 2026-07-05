@@ -59,6 +59,7 @@ export interface ClaimEvidence {
 }
 export interface ClaimVerdict {
   claim: string;
+  assertion: string;
   verdict: string;
   net: number;
   tempered_net: number;

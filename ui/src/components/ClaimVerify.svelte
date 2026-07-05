@@ -88,6 +88,9 @@
         <div class="text-xs uppercase tracking-wider opacity-70 mb-1">Verdict</div>
         <div class="text-2xl font-bold">{result.verdict}</div>
         <div class="text-sm opacity-80 mt-0.5">the claim is supported</div>
+        {#if result.assertion && result.assertion.trim().toLowerCase() !== claim.trim().toLowerCase()}
+          <div class="text-xs opacity-70 mt-1 italic">Interpreted as: {result.assertion}</div>
+        {/if}
         <div class="text-xs mono opacity-70 mt-2">
           {result.counts.supports} supporting · {result.counts.refutes} refuting ·
           {result.counts.neutral} neutral ·

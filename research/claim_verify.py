@@ -62,13 +62,17 @@ def _llm_json(system: str, user: str) -> dict:
 def plan_queries(claim: str, seed_entities: list[str] | None = None) -> dict:
     seeds = f" Known related entities: {', '.join(seed_entities[:8])}." if seed_entities else ""
     system = ("You are an OSINT fact-checker planning web/news searches to TEST a claim. "
-              "Avoid confirmation bias: produce queries that would surface SUPPORTING evidence "
-              "AND queries that would surface REFUTING evidence (denials, rebuttals, corrections, "
-              "'no evidence', debunks). Short keyword phrases, not sentences.")
-    user = (f'Claim: "{claim}".{seeds}\n'
-            'Return JSON: {"support": [2-3 keyword queries], "refute": [2-3 keyword queries]}')
+              "First, restate the input as a single neutral DECLARATIVE assertion to be verified "
+              "(if it is a question or vague, convert it; do NOT assume it is true). Then, avoiding "
+              "confirmation bias, produce queries that would surface SUPPORTING evidence AND queries "
+              "that would surface REFUTING evidence (denials, rebuttals, corrections, 'no evidence', "
+              "debunks). Short keyword phrases, not sentences.")
+    user = (f'Input: "{claim}".{seeds}\n'
+            'Return JSON: {"assertion": "the input as one neutral declarative statement", '
+            '"support": [2-3 keyword queries], "refute": [2-3 keyword queries]}')
     out = _llm_json(system, user)
-    return {"support": out.get("support", [])[:3], "refute": out.get("refute", [])[:3]}
+    return {"assertion": (out.get("assertion") or claim).strip(),
+            "support": out.get("support", [])[:3], "refute": out.get("refute", [])[:3]}
 
 
 def _classify(claim: str, item: dict) -> dict:
@@ -133,6 +137,9 @@ def _verdict_label(tempered_net: float) -> str:
 def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_query: int = 3) -> dict:
     """Verify a claim end-to-end. Returns a structured verdict dict."""
     plan = plan_queries(claim, seed_entities)
+    # Classify stance against the normalized assertion — you can't cleanly
+    # support/refute a question or a vague phrase.
+    assertion = plan.get("assertion") or claim
 
     def _fetch(q):
         out = []
@@ -160,7 +167,7 @@ def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_que
 
     def _safe(it):
         try:
-            return _classify(claim, it), it
+            return _classify(assertion, it), it
         except Exception:  # noqa: BLE001
             return None, it
 
@@ -192,10 +199,11 @@ def verify_claim(claim: str, seed_entities: list[str] | None = None, max_per_que
 
     return {
         "claim": claim,
+        "assertion": assertion,
         "verdict": _verdict_label(tempered),
         "net": round(net, 3),
         "tempered_net": round(tempered, 3),
-        "queries": plan,
+        "queries": {"support": plan["support"], "refute": plan["refute"]},
         "counts": {"snippets": len(uniq), "supports": len(ev["SUPPORTS"]),
                    "refutes": len(ev["REFUTES"]), "neutral": len(ev["NEUTRAL"]),
                    "support_sources": len(sup_src), "refute_sources": len(ref_src)},
