@@ -1612,6 +1612,28 @@ def _domain_hypothesis(path: Path) -> str:
         return ""
 
 
+@app.route("/api/claim-verify", methods=["POST"])
+def claim_verify_route():
+    """Claim verification (additive; independent of the investigation pipeline).
+    Body: {claim, entities?} — plans supporting + refuting searches, retrieves,
+    classifies each snippet's stance, and returns an ICD-203 verdict with the
+    support/refute evidence. Optional `entities` seed the searches (e.g. from a
+    finished investigation's graph)."""
+    body = request.get_json(silent=True) or {}
+    claim = (body.get("claim") or "").strip()
+    if not claim:
+        return _err(400, "validation_failed", "claim is required", field="claim")
+    seed = body.get("entities") if isinstance(body.get("entities"), list) else None
+    try:
+        from claim_verify import verify_claim
+    except ImportError:
+        from research.claim_verify import verify_claim
+    try:
+        return jsonify(verify_claim(claim, seed_entities=seed))
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "claim_verify_error", f"Claim verification failed: {type(e).__name__}: {e}")
+
+
 @app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])
 def analyze_connections(inv_id):
     """LLM summary of how the selected entities interconnect. Only the connected

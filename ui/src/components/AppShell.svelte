@@ -66,6 +66,10 @@
         onclick={() => navigate("#/monitor")}>Monitor</button
       >
       <button
+        class="nav-link {route.name === 'claim' ? 'active' : ''}"
+        onclick={() => navigate("#/claim")}>Verify a claim</button
+      >
+      <button
         class="nav-link {route.name === 'settings' ? 'active' : ''}"
         onclick={() => navigate("#/settings")}>Settings</button
       >

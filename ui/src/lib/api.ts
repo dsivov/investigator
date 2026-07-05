@@ -50,6 +50,31 @@ async function get<T>(path: string): Promise<T> {
   return r.json();
 }
 
+export interface ClaimEvidence {
+  source: string;
+  title: string;
+  url: string;
+  confidence: number;
+  quote: string;
+}
+export interface ClaimVerdict {
+  claim: string;
+  verdict: string;
+  net: number;
+  tempered_net: number;
+  queries: { support: string[]; refute: string[] };
+  counts: {
+    snippets: number;
+    supports: number;
+    refutes: number;
+    neutral: number;
+    support_sources: number;
+    refute_sources: number;
+  };
+  support: ClaimEvidence[];
+  refute: ClaimEvidence[];
+}
+
 export const api = {
   health: () => get<{ status: string }>("/api/health"),
 
@@ -119,6 +144,21 @@ export const api = {
     }
     return r.json();
   },
+
+  // Claim verification (additive; independent of the investigation pipeline).
+  claimVerify: async (claim: string, entities?: string[]): Promise<ClaimVerdict> => {
+    const r = await fetch("/api/claim-verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim, entities }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+
   artifactUrl: (id: string, name: string) =>
     `/api/investigations/${id}/artifacts/${name}`,
   logUrl: (id: string) => `/api/investigations/${id}/log`,

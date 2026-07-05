@@ -7,7 +7,7 @@
 //   #/new                 -> New Investigation wizard (placeholder)
 
 export interface Route {
-  name: "dashboard" | "investigation" | "domains" | "new" | "settings" | "knowledge" | "monitor" | "not_found";
+  name: "dashboard" | "investigation" | "domains" | "new" | "settings" | "knowledge" | "monitor" | "claim" | "not_found";
   params: Record<string, string>;
 }
 
@@ -20,6 +20,7 @@ function parseHash(hash: string): Route {
   if (parts[0] === "settings") return { name: "settings", params: {} };
   if (parts[0] === "knowledge") return { name: "knowledge", params: {} };
   if (parts[0] === "monitor") return { name: "monitor", params: {} };
+  if (parts[0] === "claim") return { name: "claim", params: {} };
   if (parts[0] === "new") return { name: "new", params: {} };
   if (parts[0] === "investigations" && parts[1]) {
     return {
