@@ -1,0 +1,19 @@
+{
+  "_comment": "Investigator methodology gate. Advisory by default (FLAG/NOTIFY). Verb-focused concepts.",
+  "enabled": true,
+  "concepts": {
+    "MODULE_CREATION": [
+      "propose a new module",
+      "add a new module",
+      "create a new component",
+      "build a new service"
+    ],
+    "ARCHITECTURE": [
+      "architecture decision",
+      "design decision",
+      "records architecture decision",
+      "technology choice"
+    ]
+  },
+  "dsl": "rule \"new module - confirm reuse\" priority 20\nwhen\n    sim(relation_type, \"MODULE_CREATION\") > 0.4\nthen\n    flag(\"New module/component proposed - confirm no existing module already covers it (check exposes_api / depends_on).\")\nend\n\nrule \"architecture decision needs rationale\" priority 15\nwhen\n    sim(relation_type, \"ARCHITECTURE\") > 0.4\n    and evidence_count < 1\nthen\n    notify(\"Architecture decision recorded without supporting evidence - add rationale or impact.\")\nend\n\nrule \"low-confidence capture needs confirmation\" priority 10\nwhen\n    confidence < 0.5\nthen\n    flag(\"Low-confidence auto-captured decision - confirm it.\")\nend"
+}

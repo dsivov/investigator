@@ -1,0 +1,94 @@
+{
+  "_comment": "Investigator methodology actions, bound to its ontology object types.",
+  "name": "investigator_dev",
+  "actions": [
+    {
+      "name": "CreateChangeRequest",
+      "object_type": "ChangeRequest",
+      "relation_type": "creates a change request",
+      "effect": "cr-created",
+      "params": [
+        {
+          "name": "title",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "description",
+          "kind": "text"
+        }
+      ]
+    },
+    {
+      "name": "AdvanceChangeRequest",
+      "object_type": "ChangeRequest",
+      "relation_type": "advances change request status",
+      "effect": "cr-transition",
+      "params": [
+        {
+          "name": "to",
+          "kind": "enum",
+          "required": true,
+          "enum_values": [
+            "open",
+            "in progress",
+            "closed"
+          ]
+        }
+      ],
+      "transition": {
+        "to_param": "to"
+      }
+    },
+    {
+      "name": "AdvanceTask",
+      "object_type": "Task",
+      "relation_type": "advances task status",
+      "effect": "task-transition",
+      "params": [
+        {
+          "name": "to",
+          "kind": "enum",
+          "required": true,
+          "enum_values": [
+            "pending",
+            "completed"
+          ]
+        }
+      ],
+      "transition": {
+        "to_param": "to"
+      }
+    },
+    {
+      "name": "RecordDecision",
+      "object_type": "ArchitectureDecisionRecord",
+      "relation_type": "records architecture decision",
+      "effect": "architecture-decision",
+      "params": [
+        {
+          "name": "decision",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "name": "impact",
+          "kind": "text"
+        }
+      ]
+    },
+    {
+      "name": "ProposeModule",
+      "object_type": "Module",
+      "relation_type": "proposes a new module",
+      "effect": "module-proposal",
+      "params": [
+        {
+          "name": "name",
+          "kind": "string",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

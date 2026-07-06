@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "context-graph": {
+      "type": "http",
+      "url": "http://localhost:9621/mcp",
+      "headers": {
+        "LIGHTRAG-WORKSPACE": "investigator"
+      }
+    }
+  }
+}

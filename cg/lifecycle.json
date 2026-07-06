@@ -1,0 +1,43 @@
+{
+  "_comment": "Investigator methodology lifecycle. Matches the onboarded ontology: Task.status (pending/completed) and ChangeRequest.status (open/in progress/closed). prop='status' because that's the ontology property name (not 'state'). Single-agent: no role restrictions.",
+  "name": "investigator_lifecycle",
+  "machines": {
+    "Task": {
+      "prop": "status",
+      "states": [
+        "pending",
+        "completed"
+      ],
+      "initial": "pending",
+      "transitions": [
+        {
+          "from": "pending",
+          "to": "completed"
+        }
+      ]
+    },
+    "ChangeRequest": {
+      "prop": "status",
+      "states": [
+        "open",
+        "in progress",
+        "closed"
+      ],
+      "initial": "open",
+      "transitions": [
+        {
+          "from": "open",
+          "to": "in progress"
+        },
+        {
+          "from": "in progress",
+          "to": "closed"
+        },
+        {
+          "from": "open",
+          "to": "closed"
+        }
+      ]
+    }
+  }
+}
