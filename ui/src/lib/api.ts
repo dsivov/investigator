@@ -59,11 +59,11 @@ export interface ClaimEvidence {
 }
 export interface ClaimVerdict {
   claim: string;
-  assertion: string;
+  assertion?: string;
   verdict: string;
   net: number;
   tempered_net: number;
-  queries: { support: string[]; refute: string[] };
+  queries?: { support: string[]; refute: string[] };
   counts: {
     snippets: number;
     supports: number;
@@ -153,6 +153,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ claim, entities }),
     });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+
+  // Whole-investigation claim verdict over the graph's evidence.
+  claimVerdict: async (id: string, claim?: string): Promise<ClaimVerdict> => {
+    const q = claim ? `?claim=${encodeURIComponent(claim)}` : "";
+    const r = await fetch(`/api/investigations/${id}/claim-verdict${q}`);
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
       throw new Error((b as any)?.message || `HTTP ${r.status}`);
