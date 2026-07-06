@@ -9,10 +9,18 @@
   let { inv }: { inv: InvestigationFull } = $props();
   let graph = $state<GraphPayload | null>(null);
   let tmfg = $state<TmfgPayload | null>(null);
+  // A cancelled/failed run may have produced no artifacts at all; without
+  // catching the 404s the cards would show "Loading…" forever.
+  let graphErr = $state(false);
+  let tmfgErr = $state(false);
 
   $effect(() => {
-    api.getGraph(inv.id).then((g) => (graph = g));
-    api.getTmfg(inv.id).then((t) => (tmfg = t));
+    graph = null;
+    tmfg = null;
+    graphErr = false;
+    tmfgErr = false;
+    api.getGraph(inv.id).then((g) => (graph = g)).catch(() => (graphErr = true));
+    api.getTmfg(inv.id).then((t) => (tmfg = t)).catch(() => (tmfgErr = true));
   });
 
   const sum = $derived(inv.summary);
@@ -43,6 +51,12 @@
 </script>
 
 <div class="flex-1 overflow-y-auto scrollbar p-6">
+  {#if graphErr && (inv.status === "cancelled" || inv.status === "failed")}
+    <div class="mb-5 rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm text-slate-400">
+      This run was <span class="font-semibold text-slate-300">{inv.status}</span> before any graph
+      data was produced. Delete it, or start a new investigation with the same query.
+    </div>
+  {/if}
   {#if sum?.asymmetric_corpus}
     <div class="mb-5 rounded-lg border border-amber-700/60 bg-amber-900/15 p-4 flex items-start gap-3 text-sm">
       <span class="text-amber-400 text-xl leading-none">⚠</span>
@@ -74,7 +88,9 @@
           {/if}
         </div>
       </div>
-      {#if !graph}
+      {#if graphErr}
+        <div class="text-slate-500 italic text-sm">No graph data.</div>
+      {:else if !graph}
         <div class="text-slate-500 italic text-sm">Loading…</div>
       {:else if singleThread}
         {#if topActors.length === 0}
@@ -169,7 +185,9 @@
           all →
         </button>
       </div>
-      {#if !tmfg}
+      {#if tmfgErr}
+        <div class="text-slate-500 italic text-sm">No theme data.</div>
+      {:else if !tmfg}
         <div class="text-slate-500 italic text-sm">Loading…</div>
       {:else}
         {@const cross = singleThread
