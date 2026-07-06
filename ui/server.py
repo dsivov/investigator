@@ -1612,6 +1612,30 @@ def _domain_hypothesis(path: Path) -> str:
         return ""
 
 
+@app.route("/api/claim-plan", methods=["POST"])
+def claim_plan_route():
+    """Plan-only claim expansion: normalize the claim to an assertion and
+    generate the balanced support/refute search queries -- without running any
+    retrieval. Lets the UI show (and let the user edit) the threads a claim
+    would seed before launching the investigation.
+    Body: {claim} -> {assertion, support: [..], refute: [..]}."""
+    body = request.get_json(silent=True) or {}
+    claim = (body.get("claim") or "").strip()
+    if not claim:
+        return _err(400, "validation_failed", "claim is required", field="claim")
+    try:
+        from claim_verify import plan_queries
+    except ImportError:
+        from research.claim_verify import plan_queries
+    try:
+        plan = plan_queries(claim)
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "claim_planning_failed", f"Could not plan searches for the claim: {e}")
+    return jsonify({"assertion": plan.get("assertion") or claim,
+                    "support": plan.get("support", []),
+                    "refute": plan.get("refute", [])})
+
+
 @app.route("/api/claim-verify", methods=["POST"])
 def claim_verify_route():
     """Claim verification (additive; independent of the investigation pipeline).
@@ -1918,7 +1942,17 @@ def create_investigation():
     # relevance hypothesis. Absent `claim`, everything below is unchanged.
     claim_text = (body.get("claim") or "").strip()
     claim_meta = None
-    if claim_text:
+    if claim_text and body.get("threads"):
+        # Claim with client-supplied threads (wizard claim seeding): the caller
+        # already planned -- and possibly edited -- the threads via
+        # /api/claim-plan, so respect them verbatim. Just carry the claim meta
+        # (drives the claim-verdict pass) and default the relevance hypothesis
+        # to the assertion.
+        assertion = (body.get("assertion") or "").strip() or claim_text
+        body = {**body,
+                "hypothesisOverride": body.get("hypothesisOverride") or assertion}
+        claim_meta = {"claim": claim_text, "assertion": assertion}
+    elif claim_text:
         try:
             from claim_verify import plan_queries
         except ImportError:
@@ -1928,12 +1962,32 @@ def create_investigation():
         except Exception as e:  # noqa: BLE001
             return _err(502, "claim_planning_failed", f"Could not plan searches for the claim: {e}")
         assertion = plan.get("assertion") or claim_text
+        support_qs = plan.get("support", [])
+        refute_qs = plan.get("refute", [])
+        # adversarialPairs caps the fan-out: N support + N refute threads.
+        # 0 means a single neutral thread on the assertion itself (claim meta
+        # kept, so the claim-verdict pass still runs).
+        pairs = body.get("adversarialPairs")
+        if pairs is not None:
+            try:
+                pairs = int(pairs)
+            except (TypeError, ValueError):
+                return _err(400, "validation_failed", "adversarialPairs must be an integer",
+                            field="adversarialPairs")
+            if pairs < 0:
+                return _err(400, "validation_failed", "adversarialPairs must be >= 0",
+                            field="adversarialPairs")
+            support_qs = support_qs[:pairs]
+            refute_qs = refute_qs[:pairs]
         gen_threads = [{"name": f"support_{i + 1}", "query": q}
-                       for i, q in enumerate(plan.get("support", []))]
+                       for i, q in enumerate(support_qs)]
         gen_threads += [{"name": f"refute_{i + 1}", "query": q}
-                        for i, q in enumerate(plan.get("refute", []))]
+                        for i, q in enumerate(refute_qs)]
         if not gen_threads:
-            return _err(502, "claim_planning_failed", "Claim produced no search angles.")
+            if pairs == 0:
+                gen_threads = [{"name": "claim_1", "query": assertion}]
+            else:
+                return _err(502, "claim_planning_failed", "Claim produced no search angles.")
         body = {**body, "kind": "multi", "threads": gen_threads,
                 "domain": body.get("domain") or "general",
                 "hypothesisOverride": assertion}

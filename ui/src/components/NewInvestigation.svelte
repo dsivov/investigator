@@ -2,6 +2,7 @@
   import { api } from "../lib/api";
   import type { Domain } from "../lib/types";
   import { navigate, investigationUrl } from "../lib/router.svelte";
+  import AdvancedSettings from "./AdvancedSettings.svelte";
 
   type Kind = "single" | "multi";
   type ThreadInput = { name: string; query: string };
@@ -119,6 +120,35 @@
     threads = threads.filter((_, idx) => idx !== i);
   }
 
+  // Claim seeding (multi kind): plan balanced support/refute threads from a
+  // claim; the generated threads stay fully editable and are sent verbatim.
+  // claimMeta marks the run as claim mode (stored claim + auto verdict tab).
+  let claimText = $state("");
+  let claimMeta = $state<{ claim: string; assertion: string } | null>(null);
+  let planningClaim = $state(false);
+  let claimPlanError = $state("");
+
+  async function seedFromClaim() {
+    const c = claimText.trim();
+    if (!c || planningClaim) return;
+    planningClaim = true;
+    claimPlanError = "";
+    try {
+      const plan = await api.claimPlan(c);
+      const gen = [
+        ...plan.support.map((q, i) => ({ name: `support_${i + 1}`, query: q })),
+        ...plan.refute.map((q, i) => ({ name: `refute_${i + 1}`, query: q })),
+      ];
+      if (!gen.length) throw new Error("Claim produced no search angles");
+      threads = gen;
+      claimMeta = { claim: c, assertion: plan.assertion };
+    } catch (e: any) {
+      claimPlanError = e?.message || "Claim planning failed";
+    } finally {
+      planningClaim = false;
+    }
+  }
+
   // Per-thread query-refinement state.
   let refining = $state<Record<number, boolean>>({});
   let refineError = $state<Record<number, string>>({});
@@ -227,6 +257,12 @@
       sources: [...enabledSources],
       extraSources: { urls: usableUrls(), pdfs: uploadedPdfs.map((p) => p.id) },
     };
+    if (claimMeta) {
+      // Claim mode with pre-planned (possibly edited) threads: the server
+      // respects the threads verbatim and stores the claim for the verdict tab.
+      body.claim = claimMeta.claim;
+      body.assertion = claimMeta.assertion;
+    }
     if (editingHypothesis && hypothesisOverride.trim()) {
       body.hypothesisOverride = hypothesisOverride.trim();
     }
@@ -437,6 +473,58 @@
         </button>
       {:else}
 
+      {#if kind === "multi"}
+        <!-- Claim seeding: optional alternative to hand-writing threads -->
+        <div class="mb-4 rounded-lg border {claimMeta ? 'border-emerald-800/60 bg-emerald-900/10' : 'border-slate-800 bg-slate-900'} p-4">
+          {#if claimMeta}
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-xs text-emerald-300 uppercase tracking-wider mb-1">Claim mode</div>
+                <p class="text-sm text-slate-300">{claimMeta.assertion}</p>
+                <p class="text-[11px] text-slate-500 mt-1">
+                  The threads below were planned from this claim — edit them freely.
+                  The claim is stored with the run and the Claim-verdict tab auto-runs when it finishes.
+                </p>
+              </div>
+              <button
+                class="text-xs text-slate-400 hover:text-red-300 whitespace-nowrap"
+                title="Keep the threads but launch as a regular (non-claim) investigation"
+                onclick={() => (claimMeta = null)}
+              >
+                × disable claim mode
+              </button>
+            </div>
+          {:else}
+            <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">
+              Seed threads from a claim (optional)
+            </div>
+            <div class="flex gap-2">
+              <input
+                class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 placeholder-slate-600"
+                placeholder="e.g. Company X supplies country Y with surveillance technology"
+                bind:value={claimText}
+                onkeydown={(e) => e.key === "Enter" && seedFromClaim()}
+              />
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 whitespace-nowrap"
+                disabled={!claimText.trim() || planningClaim}
+                onclick={seedFromClaim}
+              >
+                {planningClaim ? "Planning…" : "Plan support/refute threads"}
+              </button>
+            </div>
+            {#if claimPlanError}
+              <div class="text-xs text-red-400 mt-2">{claimPlanError}</div>
+            {/if}
+            <p class="text-[11px] text-slate-500 mt-2">
+              Replaces the threads below with balanced supporting + refuting searches and
+              enables the claim verdict. Each thread is a full run (~30–40 min at default depth) —
+              delete some, or lower the Advanced knobs, for a faster investigation.
+            </p>
+          {/if}
+        </div>
+      {/if}
+
       <div class="space-y-3">
         {#each threads as t, i}
           <div class="rounded-lg border border-slate-800 bg-slate-900 p-3">
@@ -556,55 +644,15 @@
           {showAdvanced ? "▾" : "▸"} Advanced
         </button>
         {#if showAdvanced}
-          <div class="mt-3 grid grid-cols-2 gap-4 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm">
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-slate-500">Period</span>
-              <select class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={period}>
-                <option value="7d">7 days</option>
-                <option value="30d">30 days</option>
-                <option value="3m">3 months</option>
-                <option value="6m">6 months</option>
-                <option value="1y">1 year</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-slate-500">Stage-1 articles</span>
-              <input type="number" min="10" max="100" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={stage1Articles} />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-slate-500">Stage-2 articles / entity</span>
-              <input type="number" min="5" max="50" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={stage2ArticlesPerEntity} />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-slate-500">Top-N entities</span>
-              <input type="number" min="2" max="20" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={topNEntities} />
-            </label>
-          </div>
-
-          <!-- Enhanced retrieval -->
-          <div class="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <label class="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
-              <input type="checkbox" class="accent-emerald-500" bind:checked={enhancedRetrieval} />
-              ✦ Enhanced retrieval
-            </label>
-            <p class="text-[11px] text-slate-500 mt-1">
-              Expands the query into several angles, retrieves titles broadly,
-              reranks for relevance, and (depth&gt;1) deepens on the most relevant
-              entities — widening recall before fetching article bodies.
-            </p>
-            {#if enhancedRetrieval}
-              <div class="grid grid-cols-2 gap-4 mt-3 text-sm">
-                <label class="flex flex-col gap-1">
-                  <span class="text-xs text-slate-500">Depth (entity-driven turns)</span>
-                  <input type="number" min="1" max="4" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={retrievalDepth} />
-                </label>
-                <label class="flex flex-col gap-1">
-                  <span class="text-xs text-slate-500">Query expansions</span>
-                  <input type="number" min="1" max="8" class="bg-slate-800 border border-slate-700 rounded px-2 py-1" bind:value={retrievalExpansions} />
-                </label>
-              </div>
-            {/if}
-          </div>
+          <AdvancedSettings
+            bind:period
+            bind:stage1Articles
+            bind:stage2ArticlesPerEntity
+            bind:topNEntities
+            bind:enhancedRetrieval
+            bind:retrievalDepth
+            bind:retrievalExpansions
+          />
         {/if}
       </div>
 

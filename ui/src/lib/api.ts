@@ -160,6 +160,21 @@ export const api = {
     return r.json();
   },
 
+  // Plan-only claim expansion: assertion + the support/refute queries a claim
+  // would seed, without any retrieval. Used to pre-fill editable wizard threads.
+  claimPlan: async (claim: string): Promise<{ assertion: string; support: string[]; refute: string[] }> => {
+    const r = await fetch("/api/claim-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+
   // Whole-investigation claim verdict over the graph's evidence.
   claimVerdict: async (id: string, claim?: string): Promise<ClaimVerdict> => {
     const q = claim ? `?claim=${encodeURIComponent(claim)}` : "";
