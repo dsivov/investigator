@@ -10,6 +10,12 @@ It turns a bag of source material into a **scored knowledge graph**, detects the
 (actors that appear in more than one story), and produces an analyst-grade
 report in which **every claim is traced back to a source URL**.
 
+![Investigation overview](docs/screenshots/ui-overview.png)
+
+An investigation's **Overview**: top actors ranked by relevance × confidence,
+corpus coverage, and the top evidence-weighted themes — one tab among Graph /
+Key network / TMFG themes / Data / Report / Sources / Claim verdict.
+
 ---
 
 ## The problem
@@ -108,6 +114,38 @@ sanctions-evasion run:
 The theme names the *mechanism* (CIPS, China's yuan payment rail) binding the
 sanctions network — not just four co-occurring names.
 
+![TMFG themes tab](docs/screenshots/ui-tmfg-themes.png)
+
+The TMFG-themes tab on a live election-interference run: each shaded polygon is
+one 4-clique theme, ranked by evidence weight in the side panel.
+
+---
+
+## Storylines: seeing the graph as narratives
+
+Themes are deliberately fine-grained (4 actors each). **Storylines** are the
+coarse layer above them: seeded **Louvain community detection** over the
+corroboration-weighted relationship graph splits an investigation into its
+structurally cohesive narrative clusters — typically 10–30 per run, each a
+story an analyst instantly recognises ("the FinCEN rulemaking", "the Upbit
+hack", "the Prince Group sanctions").
+
+![Graph tab with storylines](docs/screenshots/ui-graph-storylines.png)
+
+On the **Graph** tab, toggle **Storylines** to colour nodes by community, pick
+one from the legend (or jump from any node via its *Storyline* link) and the
+graph focuses on it. The side panel lists its members by relevance, and
+**Summarize storyline** has the LLM narrate that cluster as one story —
+what happened, the key actors, a dated timeline, and — crucially — whether the
+storyline actually **bears on the investigation's hypothesis** or is peripheral
+noise.
+
+That last point is the reason this layer exists: validation on real runs showed
+off-topic clusters (an astronomy story inside a product-research corpus) score
+*average* per-entity relevance — indistinguishable node by node — while being
+perfectly separated *structurally*. Community structure catches what
+per-entity scoring can't.
+
 ---
 
 ## A worked example: Iran's proxy network
@@ -137,6 +175,11 @@ structural reason the system flagged it. And ranked cross-story **leads** like:
 That's a defensible analyst lead — not "Binance is helping the Houthis" (no
 article says that), but "Iran's financial channels through Binance overlap with
 the same Iran that operates the Houthis. Worth examining together."
+
+![Pipeline funnel](docs/blog_media/914a351172dbcd89dc4708d1e0d87527a5159a18.png)
+
+The compression that makes the lead findable: 449 fetched articles distilled to
+57 scored graph nodes, 2 cross-story bridges, and 8 ranked leads.
 
 ---
 
@@ -199,6 +242,12 @@ single broker, the **Attorney-General's Office**, binding the clusters. One
 **Analyse** click then summarises the whole investigation's structure. (Quality
 tracks the upstream themes/bridges — a thin run yields a thin skeleton.)
 
+![Key network tab](docs/screenshots/ui-key-network.png)
+
+The key-network skeleton of a live run: green **key** nodes (theme members and
+bridges), grey **connectors**, and the amber-ringed **broker** the paths run
+through.
+
 ---
 
 ## Fact-checking: how many sources agree
@@ -215,6 +264,52 @@ levels:
 - **Confidence boost** in the scoring: an entity attested by more independent
   sources is pushed further from neutral, so well-corroborated actors rank above
   single-source ones (a single source still counts, just less).
+
+![Data tab with corroboration badges](docs/screenshots/ui-data-actors.png)
+
+The **Data** tab: every actor with its per-claim corroboration tier, article
+count, and relevance score — and the selection checkboxes that feed the
+on-demand Connections analysis.
+
+The **Sources** tab shows the other half of source criticism: publisher
+concentration (how much of the corpus hangs on the top-3 outlets), each
+publisher's claims, and one-click **entity enrichment** against external
+company registries (SEC EDGAR + OpenRegistry — see below).
+
+![Sources tab](docs/screenshots/ui-sources.png)
+
+---
+
+## Claim-driven investigations: from a claim to an ICD-203 verdict
+
+Instead of a search query, you can hand the system a **claim** ("Huawei supplies
+Iran with surveillance technology used to suppress protests") and get back a
+**confidence verdict** with the evidence for *and against*. Two depths:
+
+- **Quick check** (*Verify a claim* page, ~30 s). The claim is normalised to a
+  testable assertion, expanded into **balanced supporting and refuting
+  searches**, and each retrieved snippet is stance-classified. The result is an
+  ICD-203 verdict (*Almost Certainly … Almost Certainly Not*) with the
+  supporting/refuting evidence cards, the queries actually run (adversarial
+  transparency), and **source-count tempering** — a thin evidence base pulls
+  the verdict toward the middle and is flagged as a lead, not a conclusion.
+- **Full claim investigation** (one click from the quick check, or seed the
+  New-Investigation wizard from a claim). The claim's support/refute searches
+  become the investigation's **event threads** — so the graph is built on
+  both-sides evidence by design — and the normalised assertion becomes the
+  relevance hypothesis. The **adversarial fan-out** is configurable (3+3
+  threads for a thorough run, 1+1 fast, or a single neutral thread), as are the
+  per-thread depth knobs; each thread costs roughly one single-query run. In
+  the wizard the planned threads are fully editable before launch, and claim
+  mode can be switched off while keeping the threads.
+
+When a claim investigation finishes, the **Claim verdict** tab stance-classifies
+the *deep* graph evidence (not a fresh search) against the stored claim and
+aggregates it into the same ICD-203 verdict — on a validation run it reached
+**Almost Certainly** from 11 independent sources including primary FinCEN /
+Federal Register documents, with a genuine 22-support / 1-refute / 37-neutral
+stance split rather than a rubber stamp. The tab also works on any older
+investigation: type a claim and it is assessed against that graph's evidence.
 
 ---
 
@@ -242,6 +337,16 @@ investigations can draw on what earlier ones found.
   corroborating evidence, source links, and the investigations it appears in.
 - **Pre-seeding.** When a new investigation starts it is pre-seeded with what the
   KG already knows about its subject, surfaced alongside the fresh findings.
+
+### The standing monitor
+
+Built on the cumulative KG, the **Monitor** tab turns Investigator from
+request-driven into a *standing watch*: a scheduled job fetches fresh news for a
+watchlist, keeps only events touching entities the KG already knows, and
+propagates **impact** onto connected nodes (a small local TMFG + belief
+propagation around each touched entity) — producing a ranked, dated digest of
+*what moved in your graph*. Read-only over the KG. Details in
+[`docs/monitoring.md`](docs/monitoring.md).
 
 ---
 
@@ -278,13 +383,16 @@ Three processes:
   serves the Cytoscape-ready graph/theme payloads.
 - **Frontend** (`ui/`, Svelte 5 + Vite, port **5180**) — the investigator UI:
   New-Investigation wizard (domain-aware query refinement + a vetoable review
-  step, plus a Sources step for adding your own PDFs/URLs), live progress, the
-  Graph / Key-network / TMFG-themes / Data / Report / Sources tabs, on-demand
-  **Connections** analysis (select entities → hidden-relationship subgraph + LLM
-  summary), an automatic **Key network** (theme+bridge skeleton with brokers),
-  per-actor/per-evidence **corroboration** badges, a **Knowledge Base** tab
-  (query the cumulative cross-investigation KG), and a **Settings** page for
-  connecting data providers.
+  step, optional **claim seeding** into editable support/refute threads, plus a
+  Sources step for adding your own PDFs/URLs), live progress, the Graph /
+  Key-network / TMFG-themes / Data / Report / Sources / **Claim-verdict** tabs,
+  **Storylines** (Louvain communities with per-community LLM narration),
+  on-demand **Connections** analysis (select entities → hidden-relationship
+  subgraph + LLM summary), an automatic **Key network** (theme+bridge skeleton
+  with brokers), per-actor/per-evidence **corroboration** badges, a
+  **Verify a claim** quick check, a **Knowledge Base** tab (query the cumulative
+  cross-investigation KG), a **Monitor** tab (standing watch digests), and a
+  **Settings** page for connecting data providers.
 
 ---
 
@@ -342,8 +450,11 @@ INVESTIGATOR_TMFG=1 INVESTIGATOR_VIZ=1 INVESTIGATOR_DISABLE_CACHE=1 \
 ```
 
 `INVESTIGATOR_TMFG=1` enables the theme/network-analysis stages. Add
-`--analytic_engine_enabled` to accumulate finished investigations into the
-cumulative knowledge graph (so the **Knowledge Base** tab has data).
+`--analytic_engine_enabled` (or set `ANALYTIC_ENGINE_ENABLED=1`) to accumulate
+finished investigations into the cumulative knowledge graph (so the
+**Knowledge Base** tab has data). If the Knowledge Base stops picking up new
+investigations, this switch is the first thing to check — the engine runs fine
+without it and won't warn you.
 
 **4. Start the UI backend (port 5050):**
 
@@ -368,6 +479,7 @@ Open **http://localhost:5180**.
 | Variable | Effect |
 |---|---|
 | `OPENAI_API_KEY` | LLM access (engine, and the UI's query-refinement endpoint). |
+| `ANALYTIC_ENGINE_ENABLED=1` | Accumulate finished investigations into the cumulative KG (same as `--analytic_engine_enabled`). |
 | `INVESTIGATOR_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes tab). |
 | `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |
 | `INVESTIGATOR_TMFG_UNIFORM_WEIGHTS=1` | Restore the old topology-only theme weighting (default is evidence-aware). |
@@ -470,12 +582,17 @@ src/investigator/            Pipeline engine: NER, graph build, dedup/merge,
   analytics/                 Cumulative KG: in-code LightRAG merge, cross-
                              investigation canonicalization, structured_store
                              (preserves all node/edge props), retrieval
+  monitor/                   Standing watch: watchlist intake, KG intersect,
+                             impact propagation, ranked digests
 research/
   cross_event_investigation.py   CLI driver for a multi-query run
+  claim_verify.py                Claim → assertion + adversarial search plan +
+                                 stance classification + ICD-203 verdict
   search_sources.py              Wikipedia / GDELT / OpenSanctions / web providers
   enhanced_retrieval.py          Query-expansion + rerank + entity-deepening
   build_customer_report.py       Analyst-grade markdown report generator
-  build_graph_prototype.py       Cytoscape graph-payload + standalone prototype
+  build_graph_prototype.py       Cytoscape graph-payload (incl. Louvain
+                                 storyline layer) + standalone prototype
   build_tmfg_prototype.py        TMFG-themes payload + standalone prototype
   build_full_ui_prototype.py     Single-file six-tab UI prototype
   build_blog_post.py             Generates the illustrated blog post
@@ -492,8 +609,10 @@ docs/                    All project documentation (see docs/README.md)
   data-model.md          Node/edge schema + structured sidecar
   ui-api.md              REST + SSE contract
   roadmap.md             Productization roadmap
+  monitoring.md          Standing monitor (watchlist · impact digests)
   reviews/               Design reviews
   images/                README figures
+  screenshots/           UI screenshots used in this README
 news_investigations/     Run artifacts + job state (git-ignored)
 ```
 

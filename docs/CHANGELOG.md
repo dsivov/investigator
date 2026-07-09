@@ -6,6 +6,68 @@ governing ADR / ChangeRequest recorded in CG.
 
 ---
 
+## 2026-07-04 → 2026-07-09 — Claim-driven investigations, storylines, KB-ingest fix
+
+The claim-mode arc (quick check → adversarial deep investigation → graph-level
+verdict), a Louvain community layer over the investigation graph, and a root-cause
+fix for the knowledge base silently not accumulating investigations. Governed in
+CG: `cr-claim-investigation`, `adr-claim-verdict-ui` (re-recorded after the
+CG persistence bug — see `cg/FEEDBACK.md` session-3 findings).
+
+### Claim-driven investigations
+
+- **Claim quick check** — `05d6d6c`..`304426f`. `POST /api/claim-verify` +
+  *Verify a claim* page: question→assertion normalization, balanced
+  support/refute retrieval (GDELT/websearch hardening), per-snippet stance
+  classification, ICD-203 verdict with source-count tempering.
+- **Adversarial event seeding (2a)** — `30130e9`. A `claim` on
+  `POST /api/investigations` expands into balanced support_/refute_ threads;
+  the assertion becomes the relevance hypothesis.
+- **Whole-investigation verdict (2b)** — `8451f02` + UI `8d5c807`.
+  `GET /api/investigations/<id>/claim-verdict` stance-classifies the deep graph
+  evidence; *Claim verdict* tab auto-runs the stored claim (manual fallback for
+  pre-claim investigations); shared `VerdictPanel`.
+- **Claim-mode controls** — `dfcd322`. `POST /api/claim-plan` (plan-only
+  expansion), `adversarialPairs` fan-out (3+3 / 1+1 / 0), shared
+  `AdvancedSettings` depth knobs on the claim launcher, wizard claim seeding
+  with editable threads and an explicit claim-mode off switch. Turns a ~3 h
+  default claim run into ~20–30 min when tuned.
+
+### Storylines (Louvain communities)
+
+- Seeded Louvain over the corroboration-weighted relationship graph at
+  payload-build time (`build_graph_prototype._louvain_layer`); Graph-tab
+  **Storylines** colour mode, legend selection/focus, per-community member
+  panel, and `POST .../community/analyze` LLM narration (storyline / key
+  actors / timeline / hypothesis relevance). Motivating finding from a 4-run
+  probe (modularity .62–.84): off-topic clusters score *average* per-entity
+  relevance but separate cleanly as communities.
+
+### Fixes
+
+- **KB ingest silently disabled** — `settings.py` re-read
+  `ANALYTIC_ENGINE_ENABLED` after argparse, discarding the
+  `--analytic_engine_enabled` CLI flag; four days of investigations never
+  reached the KG. Flag now honored; missed runs backfilled via the production
+  `CumulativeKG.merge_graph` path. Companion env fix: NumPy-2-compatible
+  `pyarrow` in `.venv` (base-conda leak via `--system-site-packages`).
+- **Skipped-final-thread graph loss** — `cross_event_investigation.py` took the
+  *last* event's response as the merged graph; a skipped final thread (0
+  articles) discarded the whole session's graph. Now walks back to the last
+  thread with a response; `ui/server.py` returns a clean `422 empty_graph`
+  instead of a KeyError 500 for artifact-less graphs.
+- **Overview stuck on "Loading…"** — `b633de3`. Unhandled `getGraph/getTmfg`
+  rejections for cancelled/failed runs without artifacts; now an explanatory
+  banner + per-card empty states.
+
+### Docs
+
+- README refreshed: storylines, claim-driven investigations, standing monitor,
+  UI screenshots (`docs/screenshots/`), pipeline-funnel figure, updated
+  architecture/env tables.
+
+---
+
 ## 2026-06-30 → 2026-07-04 — Platform hardening + product-research support
 
 A push that (a) cleared the top of the productization roadmap (P0 blockers M1/M2
