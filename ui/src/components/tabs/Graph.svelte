@@ -32,6 +32,14 @@
   // On by default so the graph reads as one component; toggle off to declutter.
   let showStructural = $state(true);
 
+  // Prune peripheral storylines: hide communities with no anchor (no bridge,
+  // no top-relevance node, no query-subject entity). These are the off-topic
+  // clusters per-entity relevance scores can't separate.
+  let pruneOn = $state(false);
+  const peripheralIds = $derived(
+    new Set((graph?.communities ?? []).filter((c) => c.anchored === false).map((c) => c.id)),
+  );
+
   const colours = $derived(threadColourMap(runs));
 
   // Node colouring: by thread (default) or by Louvain storyline community.
@@ -280,6 +288,7 @@
         d.runs.some((r: string) => threadsOn.has(r)) &&
         typesOn.has(d.type) &&
         d.evidenceCount >= minEv;
+      if (ok && pruneOn && peripheralIds.has(d.community)) ok = false;
       if (ok && asOf && d.type === "event" && d.firstSeen && d.firstSeen > asOf) ok = false;
       baseShow.set(d.id, ok);
     });
@@ -406,6 +415,16 @@
       title="Colour nodes by Louvain community — structurally cohesive storylines"
       onclick={toggleColourMode}
     >Storylines ({graph.communities.length})</button>
+    {#if peripheralIds.size > 0}
+      <button
+        class="chip {pruneOn ? 'chip-on' : 'chip-off'} rounded-md border px-2 py-1"
+        title="Hide the {peripheralIds.size} peripheral storyline(s) — communities with no bridge, no top actor, and no query-subject entity"
+        onclick={() => {
+          pruneOn = !pruneOn;
+          applyFilters();
+        }}
+      >Core only</button>
+    {/if}
   {/if}
   <span class="text-slate-700">·</span>
   <div class="flex items-center gap-2">
@@ -475,13 +494,18 @@
         {#each graph.communities.slice(0, 12) as c}
           <button
             class="flex items-center gap-2 w-full text-left rounded px-1 py-0.5
-                   {selectedCommunity?.id === c.id ? 'bg-slate-700/60' : 'hover:bg-slate-800/80'}"
+                   {selectedCommunity?.id === c.id ? 'bg-slate-700/60' : 'hover:bg-slate-800/80'}
+                   {pruneOn && c.anchored === false ? 'opacity-40' : ''}"
             title={c.top.join(" · ")}
             onclick={() => (selectedCommunity?.id === c.id ? clearCommunity() : selectCommunity(c))}
           >
             <span class="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
               style="background: {communityColour(c.id)}"></span>
             <span class="text-slate-300 truncate flex-1">{c.label}</span>
+            {#if c.anchored === false}
+              <span class="text-[10px] text-slate-600 border border-slate-700 rounded px-1"
+                title="No bridge, top actor, or query-subject entity — hidden by Core only">periph.</span>
+            {/if}
             <span class="mono text-slate-500">{c.size}</span>
           </button>
         {/each}
@@ -508,6 +532,9 @@
       <div class="mt-1 text-xs text-slate-400">
         Storyline · {selectedCommunity.size} members · mean relevance {selectedCommunity.meanScore}
         {#if selectedCommunity.bridges}· {selectedCommunity.bridges} bridge(s){/if}
+        {#if selectedCommunity.anchored === false}
+          · <span class="text-amber-400/80" title="No bridge, top actor, or query-subject entity">peripheral</span>
+        {/if}
       </div>
 
       <button

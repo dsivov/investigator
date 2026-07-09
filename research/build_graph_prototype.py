@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -192,7 +193,10 @@ def _payload(d: dict) -> dict:
             "dateConflict": _ordering_conflict.get((s, t)) if etype == "event_followed_by" else None,
         })
 
-    communities = _louvain_layer(out_nodes, out_edges)
+    communities = _louvain_layer(
+        out_nodes, out_edges,
+        queries=[ev.get("query") or "" for ev in d.get("events", []) if isinstance(ev, dict)],
+    )
 
     return {
         "title": _title_from_runs(run_ids),
@@ -214,7 +218,29 @@ def _payload(d: dict) -> dict:
     }
 
 
-def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
+# Query words that carry no entity signal -- generic search vocabulary that
+# would otherwise anchor random communities ("best", "alternatives", ...).
+_ANCHOR_STOP = {
+    "BEST", "MODERN", "ALTERNATIVE", "ALTERNATIVES", "WITH", "USED", "USING",
+    "THAT", "THIS", "FROM", "INTO", "OVER", "ABOUT", "AFTER", "NEWS", "LATEST",
+    "EVIDENCE", "DENIES", "DEBUNKED", "INVOLVEMENT", "TECHNOLOGY", "COMPANY",
+}
+
+
+def _anchor_toks(text: str) -> set[str]:
+    """Distinctive uppercase tokens: singular/plural-normalized (TABLETS ->
+    TABLET), min 5 chars after normalization -- short generic words ("hand")
+    anchor random communities."""
+    out = set()
+    for t in re.findall(r"[A-Za-z][A-Za-z0-9&-]{3,}", text.upper()):
+        t = t.rstrip("S") or t
+        if len(t) >= 5 and t not in _ANCHOR_STOP:
+            out.add(t)
+    return out
+
+
+def _louvain_layer(out_nodes: list[dict], out_edges: list[dict],
+                   queries: list[str] | None = None) -> list[dict]:
     """Community (storyline) layer: seeded Louvain over the corroboration-
     weighted relationship graph (weight = number of parallel attested edges
     per pair; structural evidence-hub edges excluded, else everything joins
@@ -225,7 +251,13 @@ def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
     Rationale (Louvain probe over 4 real investigations, modularity .62-.84):
     communities are readable storylines, and off-topic clusters that per-entity
     relevance scores DON'T separate (they score ~graph mean) are cleanly
-    separated structurally."""
+    separated structurally.
+
+    Each community also carries ``anchored``: it holds a bridge, the graph's
+    top-relevance node, or an entity naming one of the investigation's own
+    query subjects. Unanchored ("peripheral") communities are the structural
+    junk the per-entity scores can't catch -- the UI offers a prune toggle,
+    downstream analyses can filter on it."""
     import networkx as nx
     from networkx.algorithms.community import louvain_communities
 
@@ -251,6 +283,8 @@ def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
     # labels stable across server restarts: set iteration order is not.
     comms = sorted(louvain_communities(g, weight="weight", seed=42),
                    key=lambda c: (-len(c), min(c)))
+    query_toks = _anchor_toks(" ".join(queries or []))
+    top_node = max(by_id, key=lambda m: by_id[m].get("score") or 0.0, default=None)
     out = []
     for i, members in enumerate(comms):
         if len(members) < 2:
@@ -259,6 +293,16 @@ def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
         ranked = sorted(members, key=lambda m: (-(by_id[m].get("score") or 0.0), m))
         for m in members:
             by_id[m]["community"] = idx
+        bridges = sum(1 for m in members if by_id[m].get("isBridge"))
+        # Match query subjects against ids AND aliases/event descriptions:
+        # brand names ("HUION") often carry the subject ("drawing tablet")
+        # only in their labels or event description, not the id itself.
+        member_text = " ".join(
+            f"{m} {' '.join(by_id[m].get('labels') or [])} "
+            f"{(by_id[m].get('data') or {}).get('description') or ''}"
+            for m in members)
+        anchored = bool(bridges) or (top_node in members) \
+            or bool(query_toks & _anchor_toks(member_text))
         out.append({
             "id": idx,
             "size": len(members),
@@ -266,7 +310,8 @@ def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
             "label": " · ".join(r[:34] for r in ranked[:2]),
             "top": ranked[:5],
             "meanScore": round(sum(by_id[m].get("score") or 0.0 for m in members) / len(members), 3),
-            "bridges": sum(1 for m in members if by_id[m].get("isBridge")),
+            "bridges": bridges,
+            "anchored": anchored,
         })
     return out
 

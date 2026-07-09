@@ -207,6 +207,9 @@ export interface GraphCommunity {
   top: string[];
   meanScore: number;
   bridges: number;
+  // Holds a bridge, the top-relevance node, or a query-subject entity.
+  // Unanchored communities are peripheral -- prunable noise.
+  anchored?: boolean;
 }
 
 export interface DateConflict {
