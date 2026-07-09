@@ -172,11 +172,5 @@
   </div>
 </div>
 
-<style>
-  .report-md :global(h2) { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin: 1rem 0 0.4rem; }
-  .report-md :global(h2:first-child) { margin-top: 0; }
-  .report-md :global(p) { margin: 0.4rem 0; line-height: 1.5; }
-  .report-md :global(ul) { list-style: disc; padding-left: 1.1rem; margin: 0.4rem 0; }
-  .report-md :global(li) { margin: 0.25rem 0; line-height: 1.45; }
-  .report-md :global(strong) { color: #e2e8f0; }
-</style>
+<!-- .report-md styles are shared in app.css (also used by the Graph tab's
+     storyline summaries). -->

@@ -192,11 +192,14 @@ def _payload(d: dict) -> dict:
             "dateConflict": _ordering_conflict.get((s, t)) if etype == "event_followed_by" else None,
         })
 
+    communities = _louvain_layer(out_nodes, out_edges)
+
     return {
         "title": _title_from_runs(run_ids),
         "runs": run_ids,
         "domain": (d.get("params") or {}).get("domain") or "general",
         "period": (d.get("params") or {}).get("period") or "30d",
+        "communities": communities,
         "bridges": [
             {
                 "id": b["identifier"],
@@ -209,6 +212,63 @@ def _payload(d: dict) -> dict:
         "nodes": out_nodes,
         "edges": out_edges,
     }
+
+
+def _louvain_layer(out_nodes: list[dict], out_edges: list[dict]) -> list[dict]:
+    """Community (storyline) layer: seeded Louvain over the corroboration-
+    weighted relationship graph (weight = number of parallel attested edges
+    per pair; structural evidence-hub edges excluded, else everything joins
+    one blob through the relevance root).
+
+    Mutates each node dict with ``community`` (index into the returned list,
+    largest community first; -1 = isolate) and returns the community summary.
+    Rationale (Louvain probe over 4 real investigations, modularity .62-.84):
+    communities are readable storylines, and off-topic clusters that per-entity
+    relevance scores DON'T separate (they score ~graph mean) are cleanly
+    separated structurally."""
+    import networkx as nx
+    from networkx.algorithms.community import louvain_communities
+
+    by_id = {n["id"]: n for n in out_nodes}
+    w: dict[frozenset, int] = defaultdict(int)
+    for e in out_edges:
+        if e.get("structural"):
+            continue
+        s, t = e.get("source"), e.get("target")
+        if s and t and s != t and s in by_id and t in by_id:
+            w[frozenset((s, t))] += 1
+    g = nx.Graph()
+    g.add_nodes_from(by_id)
+    for pair, cnt in w.items():
+        a, b = tuple(pair)
+        g.add_edge(a, b, weight=float(cnt))
+
+    for n in out_nodes:
+        n["community"] = -1
+    if not g.number_of_edges():
+        return []
+    # Tie-breaks (size then lexical, score then id) keep community indices and
+    # labels stable across server restarts: set iteration order is not.
+    comms = sorted(louvain_communities(g, weight="weight", seed=42),
+                   key=lambda c: (-len(c), min(c)))
+    out = []
+    for i, members in enumerate(comms):
+        if len(members) < 2:
+            continue  # singletons/isolates stay community -1
+        idx = len(out)
+        ranked = sorted(members, key=lambda m: (-(by_id[m].get("score") or 0.0), m))
+        for m in members:
+            by_id[m]["community"] = idx
+        out.append({
+            "id": idx,
+            "size": len(members),
+            # Top-scored members double as the storyline's human-readable label.
+            "label": " · ".join(r[:34] for r in ranked[:2]),
+            "top": ranked[:5],
+            "meanScore": round(sum(by_id[m].get("score") or 0.0 for m in members) / len(members), 3),
+            "bridges": sum(1 for m in members if by_id[m].get("isBridge")),
+        })
+    return out
 
 
 def _evidence_subset(node: dict, corr_items: list[dict] | None = None) -> list[dict]:

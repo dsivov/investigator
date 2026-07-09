@@ -196,6 +196,17 @@ export interface GraphNode {
   firstSeen?: string;
   lastSeen?: string;
   dateConflict?: DateConflict | null;
+  // Louvain storyline index (largest community = 0); -1 / absent = isolate.
+  community?: number;
+}
+
+export interface GraphCommunity {
+  id: number;
+  size: number;
+  label: string;
+  top: string[];
+  meanScore: number;
+  bridges: number;
 }
 
 export interface DateConflict {
@@ -225,6 +236,7 @@ export interface GraphPayload {
   domain: string;
   period: string;
   bridges: Array<{ id: string; runs: string[]; posterior: number; score: number }>;
+  communities?: GraphCommunity[];
   nodes: GraphNode[];
   edges: GraphEdge[];
 }

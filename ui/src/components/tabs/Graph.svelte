@@ -2,8 +2,8 @@
   import { onMount } from "svelte";
   import { api } from "../../lib/api";
   import { loadCytoscape } from "../../lib/cytoscape";
-  import type { GraphPayload, GraphNode, GraphEdge } from "../../lib/types";
-  import { threadColourMap, ETYPE_COLOR } from "../../lib/colors";
+  import type { GraphPayload, GraphNode, GraphEdge, GraphCommunity } from "../../lib/types";
+  import { threadColourMap, ETYPE_COLOR, POLYGON_PALETTE } from "../../lib/colors";
   import { publisherOf, escapeHtml } from "../../lib/helpers";
 
   let { id, runs }: { id: string; runs: string[] } = $props();
@@ -33,6 +33,90 @@
   let showStructural = $state(true);
 
   const colours = $derived(threadColourMap(runs));
+
+  // Node colouring: by thread (default) or by Louvain storyline community.
+  let colourMode = $state<"thread" | "community">("thread");
+  function communityColour(c: number | undefined): string {
+    return c === undefined || c < 0 ? "#475569" : POLYGON_PALETTE[c % POLYGON_PALETTE.length];
+  }
+  function nodeColour(n: GraphNode): string {
+    if (colourMode === "community") return communityColour(n.community);
+    return n.isBridge ? "#10b981" : colours[n.runs[0]] || "#64748b";
+  }
+  function toggleColourMode() {
+    colourMode = colourMode === "thread" ? "community" : "thread";
+    if (!cy || !graph) return;
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    cy.nodes().forEach((el: any) => {
+      const n = byId.get(el.id());
+      if (n) el.data("faceColour", nodeColour(n));
+    });
+  }
+
+  // Community (storyline) selection: focus one community, dim the rest, and
+  // offer an LLM narration of it in the side panel.
+  let selectedCommunity = $state<GraphCommunity | null>(null);
+  let communityReportHtml = $state("");
+  let communityErr = $state("");
+  let analyzingCommunity = $state(false);
+
+  function communityMembers(c: GraphCommunity): GraphNode[] {
+    return (graph?.nodes ?? [])
+      .filter((n) => n.community === c.id)
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }
+
+  function selectCommunity(c: GraphCommunity) {
+    if (!cy || !graph) return;
+    selected = null;
+    selectedCommunity = c;
+    communityReportHtml = "";
+    communityErr = "";
+    if (colourMode !== "community") toggleColourMode();
+    const memberSet = new Set(communityMembers(c).map((n) => n.id));
+    cy.elements().addClass("dim");
+    const members = cy.nodes().filter((el: any) => memberSet.has(el.id()));
+    members.removeClass("dim");
+    members.edgesWith(members).removeClass("dim");
+    cy.fit(members, 60);
+  }
+
+  function clearCommunity() {
+    selectedCommunity = null;
+    communityReportHtml = "";
+    communityErr = "";
+    cy?.elements().removeClass("dim");
+  }
+
+  function focusNode(id: string) {
+    if (!cy || !graph) return;
+    const n = graph.nodes.find((x) => x.id === id);
+    const el = cy.$id(id);
+    if (!n || !el.length) return;
+    selectedCommunity = null;
+    selected = n;
+    cy.elements().addClass("dim");
+    el.closedNeighborhood().removeClass("dim");
+    cy.animate({ center: { eles: el }, duration: 250 });
+  }
+
+  async function summarizeCommunity() {
+    if (!selectedCommunity || analyzingCommunity) return;
+    analyzingCommunity = true;
+    communityErr = "";
+    try {
+      const [res, { marked }] = await Promise.all([
+        api.analyzeCommunity(id, selectedCommunity.id),
+        import("marked"),
+      ]);
+      marked.setOptions({ headerIds: false, mangle: false } as any);
+      communityReportHtml = marked.parse(res.report) as string;
+    } catch (e: any) {
+      communityErr = e?.message || "Storyline analysis failed";
+    } finally {
+      analyzingCommunity = false;
+    }
+  }
 
   // Build once on mount. The Graph component is created fresh each time the
   // tab is opened (InvestigationView swaps tabs with {#if}), so id/runs are
@@ -78,7 +162,7 @@
         ...graph.nodes.map((n) => ({
           data: {
             ...n,
-            faceColour: n.isBridge ? "#10b981" : (colours[n.runs[0]] || "#64748b"),
+            faceColour: nodeColour(n),
           },
           classes:
             (n.type === "event" ? "is-event" : "is-actor") +
@@ -165,6 +249,7 @@
       const id = evt.target.id();
       const n = graph?.nodes.find((x) => x.id === id);
       if (!n) return;
+      selectedCommunity = null;
       selected = n;
       cy.elements().addClass("dim");
       evt.target.closedNeighborhood().removeClass("dim");
@@ -172,7 +257,7 @@
     cy.on("tap", (evt: any) => {
       if (evt.target === cy) {
         selected = null;
-        cy.elements().removeClass("dim");
+        clearCommunity();
       }
     });
     applyFilters();
@@ -315,6 +400,13 @@
       applyFilters();
     }}
   >Backbone</button>
+  {#if graph?.communities?.length}
+    <button
+      class="chip {colourMode === 'community' ? 'chip-on' : 'chip-off'} rounded-md border px-2 py-1"
+      title="Colour nodes by Louvain community — structurally cohesive storylines"
+      onclick={toggleColourMode}
+    >Storylines ({graph.communities.length})</button>
+  {/if}
   <span class="text-slate-700">·</span>
   <div class="flex items-center gap-2">
     <span class="text-slate-500">Min articles</span>
@@ -372,12 +464,95 @@
 </div>
 
 <div class="flex-1 flex min-h-0">
-  <div bind:this={cyEl} class="flex-1"></div>
+  <div class="flex-1 relative min-w-0">
+    <!-- Cytoscape force-sets inline position:relative on its container, so it
+         must be sized directly (h-full), not stretched via absolute inset. -->
+    <div bind:this={cyEl} class="w-full h-full"></div>
+    {#if colourMode === "community" && graph?.communities?.length}
+      <!-- Storyline legend: Louvain communities, largest first -->
+      <div class="absolute left-3 bottom-3 max-w-sm max-h-64 overflow-y-auto scrollbar rounded-lg border border-slate-700 bg-slate-900/90 backdrop-blur p-3 text-xs space-y-1">
+        <div class="text-slate-500 uppercase tracking-wider mb-1.5">Storylines (Louvain)</div>
+        {#each graph.communities.slice(0, 12) as c}
+          <button
+            class="flex items-center gap-2 w-full text-left rounded px-1 py-0.5
+                   {selectedCommunity?.id === c.id ? 'bg-slate-700/60' : 'hover:bg-slate-800/80'}"
+            title={c.top.join(" · ")}
+            onclick={() => (selectedCommunity?.id === c.id ? clearCommunity() : selectCommunity(c))}
+          >
+            <span class="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style="background: {communityColour(c.id)}"></span>
+            <span class="text-slate-300 truncate flex-1">{c.label}</span>
+            <span class="mono text-slate-500">{c.size}</span>
+          </button>
+        {/each}
+        {#if graph.communities.length > 12}
+          <div class="text-slate-600">+ {graph.communities.length - 12} smaller</div>
+        {/if}
+      </div>
+    {/if}
+  </div>
   <aside class="w-[420px] flex-shrink-0 border-l border-slate-800 bg-slate-900 overflow-y-auto scrollbar p-5 text-sm">
     <div class="text-slate-500 text-xs uppercase tracking-wider mb-2">Selection</div>
-    {#if !selected}
+    {#if selectedCommunity}
+      {@const members = communityMembers(selectedCommunity)}
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="inline-block w-3 h-3 rounded-full flex-shrink-0"
+            style="background: {communityColour(selectedCommunity.id)}"></span>
+          <div class="text-base font-semibold text-slate-100 leading-tight truncate">
+            {selectedCommunity.label}
+          </div>
+        </div>
+        <button class="text-slate-500 hover:text-slate-200" onclick={clearCommunity}>×</button>
+      </div>
+      <div class="mt-1 text-xs text-slate-400">
+        Storyline · {selectedCommunity.size} members · mean relevance {selectedCommunity.meanScore}
+        {#if selectedCommunity.bridges}· {selectedCommunity.bridges} bridge(s){/if}
+      </div>
+
+      <button
+        class="mt-3 w-full px-3 py-2 rounded-lg text-xs font-medium bg-sky-800/60 hover:bg-sky-700/60 text-sky-100 border border-sky-700/50 disabled:opacity-40"
+        disabled={analyzingCommunity}
+        onclick={summarizeCommunity}
+      >
+        {analyzingCommunity ? "Narrating storyline…" : "✦ Summarize storyline"}
+      </button>
+      {#if communityErr}
+        <div class="text-red-400 text-xs mt-2">{communityErr}</div>
+      {/if}
+      {#if communityReportHtml}
+        <div class="report-md mt-3 text-[13px] leading-relaxed text-slate-300">
+          {@html communityReportHtml}
+        </div>
+      {/if}
+
+      <div class="text-slate-500 text-xs uppercase tracking-wider mt-4 mb-2">
+        Members (by relevance)
+      </div>
+      <div class="space-y-1">
+        {#each members.slice(0, 40) as m}
+          <button
+            class="w-full text-left flex items-baseline justify-between gap-2 rounded px-1.5 py-1 hover:bg-slate-800"
+            onclick={() => focusNode(m.id)}
+          >
+            <span class="text-slate-300 truncate">
+              {m.id}
+              {#if m.type === "event"}<span class="text-slate-600 text-[10px] ml-1">event</span>{/if}
+            </span>
+            <span class="mono text-xs text-slate-500">{(m.score ?? 0).toFixed(2)}</span>
+          </button>
+        {/each}
+        {#if members.length > 40}
+          <div class="text-xs text-slate-600 px-1.5">+ {members.length - 40} more</div>
+        {/if}
+      </div>
+    {:else if !selected}
       <div class="text-slate-500 italic">
         Click an entity in the graph to see its attested role, sources, and relationships.
+        {#if graph?.communities?.length}
+          <div class="mt-2">Or turn on <span class="text-slate-300">Storylines</span> and pick a
+          community from the legend to analyze it as one story.</div>
+        {/if}
       </div>
     {:else}
       {@const rel = relationships()}
@@ -408,6 +583,17 @@
           </span>
         {/if}
       </div>
+      {#if selected.community !== undefined && selected.community >= 0 && graph?.communities?.[selected.community]}
+        {@const sc = graph.communities[selected.community]}
+        <button
+          class="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+          title="Focus this node's storyline community"
+          onclick={() => selectCommunity(sc)}
+        >
+          <span class="inline-block w-2 h-2 rounded-full" style="background: {communityColour(sc.id)}"></span>
+          Storyline: <span class="truncate max-w-[280px]">{sc.label}</span> ›
+        </button>
+      {/if}
       <div class="mt-2 text-xs text-slate-400">
         <span class="mono">{selected.evidenceCount}</span> attesting article(s) · structural score
         <span class="mono">{selected.score.toFixed(2)}</span>

@@ -364,8 +364,14 @@ def main() -> int:
 
     # The merged graph after the FINAL event's S2 POST IS the cross-event
     # graph; the server's response carries native cross-event analytics.
-    final = artifacts["per_event_states"][-1].get("response_after_S2") or \
-            artifacts["per_event_states"][-1].get("response_after_S1") or {}
+    # A skipped event (no articles) has no response, so walk backwards to the
+    # last event that actually produced one — otherwise a skipped final event
+    # would discard the whole session's merged graph.
+    final: dict = {}
+    for st in reversed(artifacts["per_event_states"]):
+        final = st.get("response_after_S2") or st.get("response_after_S1") or {}
+        if final:
+            break
     artifacts["final_merged_graph"] = final
 
     # url -> publication date (ISO), from every fetched article across all events.

@@ -434,9 +434,11 @@ def parse_args() -> argparse.Namespace:
         "EMBEDDING_BATCH_NUM", DEFAULT_EMBEDDING_BATCH_NUM, int
     )
     
-    args.analytic_engine_enabled = get_env_value(
-        "ANALYTIC_ENGINE_ENABLED", False, bool
-    )
+    # NOTE: do NOT re-read ANALYTIC_ENGINE_ENABLED here. The argparse flag
+    # already defaults to the env value; overwriting post-parse silently
+    # discarded --analytic_engine_enabled and disabled KG accumulation for
+    # anyone following the README (bit us on 2026-07-06..09: four days of
+    # investigations never reached the knowledge base).
 
     
     ollama_server_infos.LIGHTRAG_NAME = args.simulated_model_name

@@ -160,6 +160,20 @@ export const api = {
     return r.json();
   },
 
+  // LLM storyline narration of one Louvain community.
+  analyzeCommunity: async (id: string, community: number): Promise<{ report: string; size: number; edges: number }> => {
+    const r = await fetch(`/api/investigations/${id}/community/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ community }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b as any)?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+
   // Plan-only claim expansion: assertion + the support/refute queries a claim
   // would seed, without any retrieval. Used to pre-fill editable wizard threads.
   claimPlan: async (claim: string): Promise<{ assertion: string; support: string[]; refute: string[] }> => {

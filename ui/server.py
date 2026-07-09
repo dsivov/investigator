@@ -57,13 +57,23 @@ from investigator.graph.connector import connector_subgraph  # noqa: E402
 _PAYLOAD_CACHE: dict[tuple[str, int], dict] = {}
 
 
+class EmptyGraphArtifact(Exception):
+    """Artifact exists but carries no merged graph (e.g. every thread was
+    skipped for lack of articles). Routes translate this into a clean 422
+    instead of a KeyError-500."""
+
+
 def _graph_payload(path: Path) -> dict:
     key = (str(path), path.stat().st_mtime_ns)
     hit = _PAYLOAD_CACHE.get(key)
     if hit is None:
         if len(_PAYLOAD_CACHE) > 16:
             _PAYLOAD_CACHE.clear()
-        hit = bg._payload(json.loads(path.read_text()))
+        raw = json.loads(path.read_text())
+        if not (raw.get("final_merged_graph") or {}).get("nodes"):
+            raise EmptyGraphArtifact(
+                "Run produced no merged graph (threads skipped for lack of articles?)")
+        hit = bg._payload(raw)
         _PAYLOAD_CACHE[key] = hit
     return hit
 
@@ -405,6 +415,11 @@ def _err(status: int, code: str, message: str, *, field: str | None = None):
     if field:
         body["field"] = field
     return jsonify(body), status
+
+
+@app.errorhandler(EmptyGraphArtifact)
+def _empty_graph_artifact(e):
+    return _err(422, "empty_graph", str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -1742,6 +1757,127 @@ def analyze_connections(inv_id):
         return _err(502, "llm_error", f"Analysis failed: {type(e).__name__}: {e}")
     connected = len({x for e in result["edges"] for x in (e["source"], e["target"])})
     return jsonify({"report": report, "connected": connected, "stats": result["stats"]})
+
+
+_STORYLINER = None
+
+
+def _get_storyliner():
+    """Cached dspy predictor that narrates one Louvain community (storyline),
+    or None if the LLM stack is unavailable."""
+    global _STORYLINER
+    if _STORYLINER is not None:
+        return _STORYLINER if _STORYLINER is not False else None
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=str(ROOT.parent / ".env"), override=False)
+        import dspy
+
+        class SummariseStoryline(dspy.Signature):
+            """You are an OSINT analyst. You are given ONE community from an
+            investigation graph -- a structurally cohesive cluster of entities
+            and events found by community detection -- with its internal
+            relationships and supporting evidence quotes.
+
+            Narrate this cluster as a single storyline. Ground every statement
+            in the supplied data; never invent facts.
+
+            Output GitHub-flavoured Markdown:
+            ## Storyline  -- 2-4 sentences narrating what this cluster is about:
+            who did what, to whom, when. Write it as one coherent story, not a
+            list of facts.
+            ## Key actors  -- one bullet per major actor: **name** -- their role
+            in this storyline. At most 6.
+            ## Timeline  -- dated events in order, one bullet each ("YYYY-MM-DD --
+            what happened"). Omit the section if nothing is dated.
+            ## Relevance  -- 1-3 sentences: does this storyline bear on the
+            investigation's HYPOTHESIS, and how? If it is peripheral or entirely
+            off-topic for the hypothesis, say so plainly -- that is a valuable
+            finding, not a failure.
+            """
+            hypothesis: str = dspy.InputField(
+                desc="The investigation's domain relevance hypothesis")
+            community: str = dspy.InputField(
+                desc="The community: members, internal relationships, evidence quotes")
+            report: str = dspy.OutputField()
+
+        lm = dspy.LM("openai/gpt-4.1", temperature=0.2, max_tokens=900)
+        predictor = dspy.Predict(SummariseStoryline)
+
+        def _run(community: str, hypothesis: str = "") -> str:
+            with dspy.context(lm=lm):
+                out = predictor(
+                    community=community,
+                    hypothesis=hypothesis or "(no explicit hypothesis was supplied)",
+                )
+            return (out.report or "").strip()
+
+        _STORYLINER = _run
+        return _STORYLINER
+    except Exception as e:  # noqa: BLE001
+        print(f"[storyline] LLM unavailable: {e}", file=sys.stderr)
+        _STORYLINER = False
+        return None
+
+
+def _describe_community(members: list[dict], edges: list[dict]) -> str:
+    """Render one community as bounded text for the storyline summariser:
+    top members (score-ranked) with labels/dates, internal relationships with
+    their attested context, and a few evidence quotes for the top actors."""
+    ranked = sorted(members, key=lambda n: n.get("score") or 0.0, reverse=True)
+    lines = ["MEMBERS:"]
+    for n in ranked[:40]:
+        bits = [n["id"], f"({n.get('type', 'entity')}"]
+        labs = ", ".join(n.get("labels") or [])
+        bits[-1] += f"; {labs})" if labs else ")"
+        if n.get("firstSeen"):
+            bits.append(f"active {n['firstSeen']}..{n.get('lastSeen') or n['firstSeen']}")
+        lines.append("  - " + " ".join(bits))
+    lines.append("\nINTERNAL RELATIONSHIPS:")
+    for e in edges[:60]:
+        ctx = (e.get("context") or "").strip()
+        rel = e.get("rtype") or e.get("type") or "related to"
+        lines.append(f"  - {e['source']} --[{rel}]--> {e['target']}"
+                     + (f": {ctx[:220]}" if ctx else ""))
+    lines.append("\nEVIDENCE QUOTES:")
+    quoted = 0
+    for n in ranked[:12]:
+        for ev in (n.get("evidence") or [])[:2]:
+            for q in (ev.get("quotes") or [])[:1]:
+                src = ev.get("source") or ev.get("publisher") or ""
+                lines.append(f"  - [{n['id']}] \"{str(q)[:260]}\" ({src})")
+                quoted += 1
+        if quoted >= 14:
+            break
+    return "\n".join(lines)
+
+
+@app.route("/api/investigations/<inv_id>/community/analyze", methods=["POST"])
+def analyze_community(inv_id):
+    """LLM storyline narration of one Louvain community from the graph payload."""
+    path, _ = _resolve_inv(inv_id)
+    if not path or not path.exists():
+        return _err(404, "investigation_not_found", "No artifact for this id.")
+    body = request.get_json(silent=True) or {}
+    try:
+        cid = int(body.get("community"))
+    except (TypeError, ValueError):
+        return _err(400, "bad_request", "Provide the community id as 'community'.")
+    payload = _graph_payload(path)
+    members = [n for n in payload["nodes"] if n.get("community") == cid]
+    if not members:
+        return _err(404, "community_not_found", f"No community {cid} in this graph.")
+    ids = {n["id"] for n in members}
+    edges = [e for e in payload["edges"]
+             if not e.get("structural") and e["source"] in ids and e["target"] in ids]
+    storyliner = _get_storyliner()
+    if storyliner is None:
+        return _err(503, "llm_unavailable", "Analysis model unavailable (check OPENAI_API_KEY).")
+    try:
+        report = storyliner(_describe_community(members, edges), _domain_hypothesis(path))
+    except Exception as e:  # noqa: BLE001
+        return _err(502, "llm_error", f"Storyline analysis failed: {type(e).__name__}: {e}")
+    return jsonify({"report": report, "size": len(members), "edges": len(edges)})
 
 
 @app.route("/api/investigations/<inv_id>/tmfg", methods=["GET"])
