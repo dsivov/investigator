@@ -1,5 +1,9 @@
 # Investigator — finding the hidden threads in news
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![Svelte 5](https://img.shields.io/badge/UI-Svelte%205-orange.svg)](ui/)
+
 **Investigator** is an OSINT analysis pipeline that reads a corpus of news
 articles about several separate stories and surfaces the **actors, events, and
 relationships that connect them** — the cross-story structure a human analyst
