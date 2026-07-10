@@ -1698,8 +1698,8 @@ def claim_verdict(inv_id):
         return _err(400, "claim_required", "No claim on this investigation; pass ?claim=…")
 
     nodes = (d.get("final_merged_graph") or {}).get("nodes") or []
-    ent = sorted([n for n in nodes if n.get("type") == "entity" and n.get("evidence")],
-                 key=lambda x: -float(x.get("score") or 0))[:25]
+    candidates = [n for n in nodes if n.get("type") == "entity" and n.get("evidence")]
+    ent, sampling_mode = _sample_entities_by_community(path, candidates, cap=25)
     items = []
     for n in ent:
         for rec in (n.get("evidence") or [])[:3]:
@@ -1717,7 +1717,64 @@ def claim_verdict(inv_id):
     except Exception as e:  # noqa: BLE001
         return _err(502, "claim_verdict_error", f"Claim verdict failed: {type(e).__name__}: {e}")
     result["investigation_id"] = inv_id
+    result["sampling"] = sampling_mode
     return jsonify(result)
+
+
+def _sample_entities_by_community(path: Path, candidates: list[dict], cap: int = 25):
+    """Pick the entities whose evidence feeds the claim verdict.
+
+    Community-balanced: round-robin over the graph's Louvain storylines
+    (score-ranked within each), anchored communities first, so one dominant
+    cluster can't crowd out every other narrative neighbourhood -- peripheral
+    (unanchored) communities and isolates only fill leftover slots. Falls back
+    to plain global top-N when the payload/community layer is unavailable.
+    Returns (entities, sampling_info)."""
+    top_n = sorted(candidates, key=lambda x: -float(x.get("score") or 0))[:cap]
+    try:
+        payload = _graph_payload(path)
+        comm_of = {n["id"]: n.get("community", -1) for n in payload["nodes"]}
+        comm_meta = {c["id"]: c for c in payload.get("communities") or []}
+        if not comm_meta:
+            return top_n, {"mode": "top-score", "entities": len(top_n)}
+    except Exception:  # noqa: BLE001 -- balancing is best-effort, never a 500
+        return top_n, {"mode": "top-score", "entities": len(top_n)}
+
+    # Hybrid: half the slots keep the global top-scored entities (a globally
+    # prominent actor -- e.g. the one carrying the only refuting evidence --
+    # must not be crowded out), the other half round-robins the storylines so
+    # every narrative neighbourhood is represented.
+    keep_n = cap // 2
+    sel: list[dict] = top_n[:keep_n]
+    picked = {n.get("identifier") for n in sel}
+
+    by_comm: dict[int, list[dict]] = defaultdict(list)
+    for n in candidates:
+        if n.get("identifier") not in picked:
+            by_comm[comm_of.get(n.get("identifier"), -1)].append(n)
+    for lst in by_comm.values():
+        lst.sort(key=lambda x: -float(x.get("score") or 0))
+    # Anchored storylines first (community ids are already size-ordered);
+    # peripheral communities and isolates (-1) trail as filler.
+    order = sorted(by_comm, key=lambda cid: (
+        0 if cid >= 0 and comm_meta.get(cid, {}).get("anchored", True) else 1,
+        cid if cid >= 0 else 1 << 30))
+    cursor = dict.fromkeys(order, 0)
+    while len(sel) < cap:
+        progressed = False
+        for cid in order:
+            i = cursor[cid]
+            if i < len(by_comm[cid]):
+                sel.append(by_comm[cid][i])
+                cursor[cid] = i + 1
+                progressed = True
+                if len(sel) >= cap:
+                    break
+        if not progressed:
+            break
+    comms_used = len({comm_of.get(n.get("identifier"), -1) for n in sel})
+    return sel, {"mode": "community-balanced", "entities": len(sel),
+                 "communities": comms_used}
 
 
 @app.route("/api/investigations/<inv_id>/connect/analyze", methods=["POST"])
