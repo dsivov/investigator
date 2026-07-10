@@ -685,6 +685,129 @@ def _network_map(d: dict, sr: SourceRegistry) -> str:
     return "\n".join(lines)
 
 
+def _storylines_section(d: dict, sr: SourceRegistry) -> str:
+    """Section 4: storylines -- the coarse narrative clusters of the merged
+    graph (community detection over the corroboration-weighted relationship
+    graph; same layer the interactive Graph tab shows). Each storyline is
+    unpacked deterministically -- principal actors, the attested relationships
+    binding them (cited), and its dated incidents. No generative
+    summarisation: everything below is traceable to the corpus."""
+    lines = ["\n## 4. Storylines\n"]
+    try:
+        try:
+            import build_graph_prototype as bg
+        except ImportError:
+            from research import build_graph_prototype as bg  # type: ignore
+        payload = bg._payload(d)
+    except Exception:  # noqa: BLE001 -- storylines are additive, never fatal
+        lines.append("The storyline layer could not be computed for this "
+                     "corpus.\n")
+        return "\n".join(lines)
+
+    comms = payload.get("communities") or []
+    if not comms:
+        lines.append("No storyline structure was detected: the corpus is too "
+                     "sparse to partition into distinct narrative clusters.\n")
+        return "\n".join(lines)
+
+    nodes_by_id = {n["id"]: n for n in payload["nodes"]}
+    members_of: dict[int, list[dict]] = defaultdict(list)
+    for n in payload["nodes"]:
+        cid = n.get("community", -1)
+        if cid >= 0:
+            members_of[cid].append(n)
+    for lst in members_of.values():
+        lst.sort(key=lambda n: -(n.get("score") or 0.0))
+
+    # Attested (non-synthetic) artifact edges by unordered pair, for citations.
+    edge_by_pair: dict[frozenset, list[dict]] = defaultdict(list)
+    for e in d["final_merged_graph"].get("edges", []) or []:
+        s = e.get("src_identifier"); t = e.get("dst_identifier")
+        if s and t and s != t and e.get("type") != "evidence":
+            edge_by_pair[frozenset((s, t))].append(e)
+
+    anchored = [c for c in comms if c.get("anchored", True)]
+    peripheral = [c for c in comms if not c.get("anchored", True)]
+
+    lines.append(
+        "A _storyline_ is a cluster of actors and incidents that are far more "
+        "connected to one another than to the rest of the corpus -- the "
+        "distinct narratives the coverage naturally splits into. Storylines "
+        "complement the finer-grained themes of Section 3: a storyline is the "
+        "story, a theme is a load-bearing structure inside it. Clusters with "
+        "no link to the investigation's principal actors or subjects are "
+        "reported separately at the end as peripheral coverage.\n"
+    )
+
+    for i, c in enumerate(anchored[:6], 1):
+        members = members_of.get(c["id"], [])
+        if not members:
+            continue
+        actors = [m for m in members if m.get("type") != "event"]
+        events = [m for m in members if m.get("type") == "event"]
+        lines.append(f"\n### Storyline {i}: {c['label']}\n")
+        lines.append(
+            f"_{len(actors)} actors and {len(events)} reported incidents; "
+            f"mean relevance {c.get('meanScore', 0):.2f}"
+            + (f"; {c['bridges']} cross-thread actor(s)" if c.get("bridges") else "")
+            + "._\n")
+
+        top = [m["id"] for m in members[:6]]
+        rel_rows = []
+        seen_pairs = set()
+        for a in range(len(top)):
+            for b in range(a + 1, len(top)):
+                pair = frozenset((top[a], top[b]))
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                pair_edges = edge_by_pair.get(pair) or []
+                if not pair_edges:
+                    continue
+                pair_edges.sort(key=lambda e: 0 if _edge_context(e)[1] else 1)
+                e = pair_edges[0]
+                rtype, ctx = _edge_context(e)
+                cite = sr.cite(_edge_source_url(e))
+                rtype_str = f" _{rtype}_" if rtype and rtype != "unknown" else ""
+                ctx_str = f" — {ctx}" if ctx else ""
+                rel_rows.append(f"- **{top[a]}** ↔ **{top[b]}**{rtype_str}{ctx_str} {cite}")
+                if len(rel_rows) >= 5:
+                    break
+            if len(rel_rows) >= 5:
+                break
+        if rel_rows:
+            lines.append("**Attested relationships:**\n")
+            lines.extend(rel_rows)
+            lines.append("")
+
+        dated = sorted((m for m in events if m.get("firstSeen")),
+                       key=lambda m: m["firstSeen"])[:4]
+        if dated:
+            lines.append("**Reported incidents:**\n")
+            for m in dated:
+                url = next((ev.get("source") for ev in (m.get("evidence") or [])
+                            if str(ev.get("source", "")).startswith("http")), "")
+                cite = sr.cite(url) if url else ""
+                lines.append(f"- {m['firstSeen']} — {m['id']} {cite}".rstrip())
+            lines.append("")
+
+    if len(anchored) > 6:
+        lines.append(f"\n_({len(anchored) - 6} further storylines in the "
+                     "underlying dataset.)_\n")
+
+    if peripheral:
+        peri_nodes = sum(c.get("size", 0) for c in peripheral)
+        examples = "; ".join(c["label"] for c in peripheral[:3])
+        lines.append(
+            f"\n**Peripheral coverage.** {len(peripheral)} cluster(s) "
+            f"({peri_nodes} actors/events) sit apart from the investigation's "
+            f"principal actors and subjects — e.g. {examples}. They are "
+            "retained in the interactive graph but excluded from the analysis "
+            "above as probable off-topic coverage swept in by the source "
+            "corpus.\n")
+    return "\n".join(lines)
+
+
 def _timeline(d: dict, sr: SourceRegistry) -> str:
     final = d["final_merged_graph"]
     events = [n for n in final["nodes"] if n.get("type") == "event"]
@@ -697,7 +820,7 @@ def _timeline(d: dict, sr: SourceRegistry) -> str:
     dated.sort(key=lambda p: p[0])
 
     lines = []
-    lines.append("\n## 4. Timeline of Reported Incidents\n")
+    lines.append("\n## 5. Timeline of Reported Incidents\n")
     if not dated:
         lines.append("No dated incidents were extracted at sufficient precision to construct a timeline.\n")
         return "\n".join(lines)
@@ -736,7 +859,7 @@ def _causation_section(d: dict, sr: SourceRegistry) -> str:
     causal = [e for e in edges if e.get("type") == "claimed_caused_by"]
 
     lines = []
-    lines.append("\n## 5. Causal Assertions Reported by Sources\n")
+    lines.append("\n## 6. Causal Assertions Reported by Sources\n")
     if not causal:
         lines.append(
             "No source in the corpus made an explicit causal assertion "
@@ -783,7 +906,7 @@ def _confidence_assessment(d: dict) -> str:
     all3 = [b for b in bridges if len(b.get("runs") or []) >= n_runs]
 
     lines = []
-    lines.append("\n## 6. Confidence and Caveats\n")
+    lines.append("\n## 7. Confidence and Caveats\n")
     lines.append("**Source coverage.** "
                  f"{body_ok}/{fetched} articles ({100*body_ok/max(1,fetched):.0f} percent) "
                  f"contributed full body text; {len(publishers)} distinct "
@@ -806,7 +929,7 @@ def _confidence_assessment(d: dict) -> str:
         "**Causal interpretation.** This analysis surfaces "
         "co-occurrence and attested relationships. Causation appears "
         "in this report only where a source article itself asserts it "
-        "(Section 5). Any causal framing the reader infers beyond that "
+        "(Section 6). Any causal framing the reader infers beyond that "
         "should be marked as analyst inference rather than source claim.\n"
     )
     lines.append(
@@ -828,7 +951,7 @@ def _recommendations(d: dict, run_labels: list[str]) -> str:
     others = [b for b in bridges if len(b.get("runs") or []) < n_runs]
 
     lines = []
-    lines.append("\n## 7. Recommended Next Steps\n")
+    lines.append("\n## 8. Recommended Next Steps\n")
     if all3:
         names = ", ".join(f"**{b['identifier']}**" for b in all3[:4])
         lines.append(
@@ -875,6 +998,13 @@ def _methodology_appendix() -> str:
         "edge tied to its source URL. The pipeline then identifies "
         "actors and themes that appear in more than one investigative "
         "thread, with confidence weighted by attestation density.\n\n"
+        "Storylines (Section 4) are computed with a standard "
+        "community-detection algorithm over the relationship network, "
+        "weighted by how many independent articles attest each "
+        "relationship. Clusters with no connection to the "
+        "investigation's principal actors or query subjects are "
+        "reported as peripheral coverage rather than analysed; they "
+        "remain available in the interactive graph.\n\n"
         "The pipeline does not perform open-web crawling beyond the "
         "publisher pages returned by the news aggregator; it does not "
         "consult closed or paid databases; and it does not perform "
@@ -939,6 +1069,7 @@ def build_report(json_path: Path) -> Path:
     parts.append(_scope_section(d, sr, domain_label, run_labels))
     parts.append(_key_entities(d, sr))
     parts.append(_network_map(d, sr))
+    parts.append(_storylines_section(d, sr))
     parts.append(_timeline(d, sr))
     parts.append(_causation_section(d, sr))
     parts.append(_confidence_assessment(d))
