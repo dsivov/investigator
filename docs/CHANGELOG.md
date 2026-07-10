@@ -107,7 +107,7 @@ per change).
   in the response, plus a warning log.
 
 - **LLM resilience** — `1d09662` · roadmap **P1 / S4** · CG: `adr-llm-resilience`,
-  `cr-llm-resilience`. *(branch `feat/llm-resilience` — pending merge)*
+  `cr-llm-resilience`. *(merged to main 2026-07-10, `ea34dff`)*
   `dspy.LM` instances now carry an env-tunable per-call **timeout**
   (`INVESTIGATOR_LLM_TIMEOUT`, default 90s) and **`num_retries`**
   (`INVESTIGATOR_LLM_RETRIES`, default 3; litellm exponential backoff on transient
