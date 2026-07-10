@@ -85,8 +85,20 @@ semhash_model = StaticModel.from_pretrained("minishlab/potion-multilingual-128M"
 
 # --- DSPy LM configuration ------------------------------------------------
 
-lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000)
-extraction_lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000)
+# LLM resilience (roadmap P1 / S4): bound each call with a timeout so a slow
+# provider can't hang a chunk, and retry transient failures (429 / 5xx /
+# network) with exponential backoff (litellm handles the backoff). dspy already
+# defaults num_retries=3; we set both explicitly and env-overridable so the
+# behaviour is intentional and tunable. A call that still fails after retries
+# falls through to the per-chunk guard and is counted as a failed chunk
+# (surfaced in the P1 `extraction` block), rather than hanging or vanishing.
+_LLM_TIMEOUT = int(os.environ.get("INVESTIGATOR_LLM_TIMEOUT", "90"))
+_LLM_RETRIES = int(os.environ.get("INVESTIGATOR_LLM_RETRIES", "3"))
+
+lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000,
+             timeout=_LLM_TIMEOUT, num_retries=_LLM_RETRIES)
+extraction_lm = dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000,
+                        timeout=_LLM_TIMEOUT, num_retries=_LLM_RETRIES)
 # Concurrency of the NER/extraction fan-out. Each worker holds a payload chunk
 # plus a (large) gpt-4.1 response in flight, so this is the main driver of the
 # transient memory spike during Stage-1/2. Lower it on memory-constrained hosts
@@ -179,7 +191,9 @@ async def extract_query_subject(query: str) -> str:
 
 async def get_representative_identifiers(identifiers: list[str]) -> list[str]:
     extract = dspy.asyncify(dspy.Predict(MostRepresentativeIdentifier))
-    with dspy.context(lm=dspy.LM("openai/gpt-4.1", temperature=0.0, max_tokens=32000)):
+    # Reuse the resilient extraction_lm (timeout + retries) instead of a fresh,
+    # unconfigured LM per call.
+    with dspy.context(lm=extraction_lm):
         result = await extract(identifiers=identifiers)
     return result.representative_identifiers
 
