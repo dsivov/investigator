@@ -6,6 +6,38 @@ governing ADR / ChangeRequest recorded in CG.
 
 ---
 
+## 2026-07-10 → 2026-07-12 — Storylines completed, production serving (v1.1.0)
+
+Closes the storyline arc into the analyst deliverable and clears the last open
+P0 (production server), with proportionate auth. Released as **v1.1.0**.
+
+- **Storylines in the customer report** — `9ea55e8`. New "Section 4 —
+  Storylines": the community layer unpacked deterministically (attested
+  relationships with footnotes, dated incidents per storyline, peripheral
+  coverage disclosed); downstream sections renumbered.
+- **Storyline subgraph modal** — `b862f63`. "⧉ Subgraph" opens the selected
+  community as a standalone graph with a fresh layout; node-tap jumps back to
+  the main view.
+- **Community-balanced claim-verdict evidence** — `45bd08d`. Hybrid sampling
+  (half global top-score, half storyline round-robin, anchored first); pure
+  balance was rejected after it crowded out the Huione claim's only refuting
+  evidence.
+- **Production serving (P0 phase 1)** — `5102ead`. gunicorn WSGI entries
+  (`investigator.wsgi`, `parse_known_args`), UI backend serves the built
+  frontend (SPA + traversal guard), engine bound to 127.0.0.1, Docker
+  hardened to a single exposed port with KB ingest on by default. Verified
+  with a full smoke investigation incl. KG ingest on the new stack.
+- **Optional token + daily spend guard (phase 2, proportionate)** — `1467874`.
+  `INVESTIGATOR_API_TOKEN` (cookie-carried so SSE/artifact links work; Bearer
+  and ?token= for scripts) and `INVESTIGATOR_DAILY_THREADS` (429 past the
+  per-UTC-day thread budget). Both off by default.
+- **LLM resilience merged** — `ea34dff` (branch `feat/llm-resilience`,
+  pending since 07-04).
+- **GitHub visibility**: MIT license (+ metadata fix from "Proprietary"),
+  repo description, 20 topics, v1.0.0 release, README screenshots pass.
+
+---
+
 ## 2026-07-04 → 2026-07-09 — Claim-driven investigations, storylines, KB-ingest fix
 
 The claim-mode arc (quick check → adversarial deep investigation → graph-level
