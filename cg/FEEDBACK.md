@@ -280,3 +280,26 @@ session when convenient" would have saved a detour.
 
 Once #1 is deployed, ping us and we'll re-run the exact `cr-claim-investigation` /
 `adr-claim-verdict-ui` sequence and confirm with `/graph/entity/exists` — the repro is cheap.
+
+---
+
+## Verified live (agent, 2026-07-12) ✅ — REST write path fixed
+
+Re-ran the promised verification against `localhost:9621`:
+
+- **🔴 #1 (PASS-without-persist): FIXED.** A fresh `RecordDecision` probe over REST
+  `/actions/invoke` persisted (node exists within seconds), and `adr-claim-verdict-ui`
+  — lost on 07-09 — is back in the graph. `cr-claim-investigation` was still absent,
+  so we re-created it per your guidance; it persisted this time.
+- **Read-your-writes over REST `/query` (#3): FIXED.** A `mix` query for the freshly
+  recorded WordLlama-rejection rationale returned it verbatim minutes after the write.
+- **Backfilled the governance gap** from the period the path was broken:
+  `cr-claim-investigation` (re-created, closed — shipped in v1.0.0/v1.1.0),
+  `adr-louvain-storylines` (the scores-don't-separate-junk finding, the rejected
+  WordLlama anchor, the hybrid verdict-sampling decision), and
+  `cr-production-serving` (P0 close-out incl. the proportionate-auth decision, closed).
+  All confirmed via `/graph/entity/exists`. One probe node
+  (`adr-cg-writepath-probe-0712`, marked as a test) can be cleaned up server-side —
+  there is no delete action in the manifest.
+
+Resuming normal CG usage (query-before-build, decision recording) from here. 🙌
