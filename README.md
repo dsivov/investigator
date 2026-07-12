@@ -407,7 +407,9 @@ need an **OpenAI API key**.
 
 ### Quick start with Docker
 
-Runs all three services (engine, UI backend, frontend) in one container.
+Runs the production stack in one container: engine and UI backend under
+gunicorn, frontend served as a built static bundle — one exposed port, and the
+pipeline engine reachable only from inside the container.
 
 ```sh
 cp .env.example .env          # then edit .env and set OPENAI_API_KEY
@@ -418,12 +420,18 @@ Or without compose:
 
 ```sh
 docker build -t investigator .
-docker run --rm -p 5003:5003 -p 5050:5050 -p 5180:5180 \
+docker run --rm -p 5050:5050 \
   -e OPENAI_API_KEY=sk-... -v investigator-data:/data investigator
 ```
 
-Then open **http://localhost:5180**. Durable session state and the cumulative
-knowledge graph persist in the `investigator-data` volume.
+Then open **http://localhost:5050**. Durable session state and the cumulative
+knowledge graph persist in the `investigator-data` volume. The knowledge base
+accumulates by default (`ANALYTIC_ENGINE_ENABLED=0` to disable).
+
+> **Exposure note:** the app has no built-in authentication yet. Bind it to
+> localhost or a trusted network, or front it with an authenticating reverse
+> proxy — anyone who can reach :5050 can run investigations on your OpenAI
+> key and read every report.
 
 ### Manual setup
 
@@ -477,6 +485,29 @@ cd ui && npm install && npm run dev   # http://localhost:5180, proxies /api -> :
 ```
 
 Open **http://localhost:5180**.
+
+### Production serving (no dev servers)
+
+The Flask development servers and Vite are for development. For anything
+reachable by other people, run the same processes under gunicorn and serve the
+built frontend from the UI backend (this is exactly what the Docker image does):
+
+```sh
+cd ui && npm run build && cd ..                      # build the bundle -> ui/dist
+
+# Engine — LOCALHOST ONLY; nothing but the UI backend should reach it.
+INVESTIGATOR_TMFG=1 ANALYTIC_ENGINE_ENABLED=1 PYTHONPATH=src:. \
+  gunicorn -w 1 --threads 16 --timeout 0 -b 127.0.0.1:5003 investigator.wsgi:app
+
+# UI backend — serves the API *and* the built frontend on one port.
+gunicorn -w 1 --threads 32 --timeout 0 -b 0.0.0.0:5050 --chdir ui server:app
+```
+
+Open **http://localhost:5050**. `-w 1` is required on both (session state,
+job queue, and SSE fan-out are in-process; concurrency comes from threads),
+and `--timeout 0` keeps long pipeline calls and SSE progress streams alive.
+When `ui/dist` exists the backend serves it automatically; without it the
+backend is API-only and the Vite dev server keeps working as before.
 
 ### Useful environment variables
 

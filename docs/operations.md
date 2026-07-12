@@ -2,7 +2,7 @@
 
 How to run Investigator, the environment knobs, and how to keep it inside memory.
 
-## Running locally
+## Running in development
 
 Three processes (see [architecture.md](architecture.md)). Secrets load from a
 git-ignored `.env` (`cp .env.example .env`, set `OPENAI_API_KEY`).
@@ -11,24 +11,59 @@ git-ignored `.env` (`cp .env.example .env`, set `OPENAI_API_KEY`).
 # 1. Pipeline engine (port 5003)
 INVESTIGATOR_TMFG=1 INVESTIGATOR_VIZ=1 INVESTIGATOR_DISABLE_CACHE=1 \
   PYTHONPATH=src:. python -m investigator
-# add --analytic_engine_enabled to accumulate runs into the cumulative KG
+# add --analytic_engine_enabled (or ANALYTIC_ENGINE_ENABLED=1) to accumulate
+# runs into the cumulative KG
 
 # 2. UI backend (port 5050)
 PYTHONPATH=.:src python ui/server.py --port 5050
 # add --host 0.0.0.0 to reach it from another machine on the LAN
 
-# 3. Frontend (port 5180)
+# 3. Frontend (port 5180, hot reload)
 cd ui && npm install && npm run dev
 ```
 
 Open **http://localhost:5180** (or `http://<host-lan-ip>:5180` from another
 workstation — the Vite dev server binds all interfaces).
 
+## Running in production (gunicorn, two processes)
+
+The dev servers above are single-user development conveniences. For anything
+other people can reach, run both Flask apps under gunicorn and serve the
+built frontend from the UI backend — this is what the Docker image does
+(`docker compose up --build`, then open **http://localhost:5050**):
+
+```sh
+cd ui && npm run build && cd ..     # bundle -> ui/dist (backend auto-serves it)
+
+# 1. Pipeline engine — bind to LOCALHOST ONLY; it has no auth and only the
+#    UI backend should ever reach it.
+INVESTIGATOR_TMFG=1 ANALYTIC_ENGINE_ENABLED=1 PYTHONPATH=src:. \
+  gunicorn -w 1 --threads 16 --timeout 0 -b 127.0.0.1:5003 investigator.wsgi:app
+
+# 2. UI backend — one exposed port for API + frontend.
+gunicorn -w 1 --threads 32 --timeout 0 -b 0.0.0.0:5050 --chdir ui server:app
+```
+
+Open **http://localhost:5050**. Non-negotiable flags:
+
+- **`-w 1`** on both: engine session state / per-session locks and the
+  backend's job queue / SSE pub-sub are in-process; a second worker process
+  would silently see none of it. Concurrency comes from `--threads`.
+- **`--timeout 0`**: stage-2 pipeline calls run for many minutes and SSE
+  progress streams live for a whole investigation; gunicorn's default 30 s
+  timeout would kill both.
+- Under gunicorn all configuration comes from **environment variables** (CLI
+  flags belong to gunicorn); every engine flag has an env fallback.
+
+There is **no built-in authentication yet** — keep :5050 on localhost or a
+trusted network, or front it with an authenticating reverse proxy.
+
 ## Environment variables
 
 | Variable | Effect |
 |---|---|
 | `OPENAI_API_KEY` | LLM access (engine, UI query-refinement, cumulative-KG layer). |
+| `ANALYTIC_ENGINE_ENABLED=1` | Accumulate finished investigations into the cumulative KG (equivalent to `--analytic_engine_enabled`; required under gunicorn where CLI flags are unavailable). |
 | `INVESTIGATOR_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes / Key-network tabs). |
 | `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |
 | `INVESTIGATOR_ASYNC_WORKERS` | NER/extraction concurrency (default 16). Lower it to shrink the memory spike — see below. |

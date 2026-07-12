@@ -318,7 +318,11 @@ def parse_args() -> argparse.Namespace:
     elif os.environ.get("LLM_BINDING") in ["openai", "azure_openai"]:
         OpenAILLMOptions.add_args(parser)
 
-    args = parser.parse_args()
+    # parse_known_args, not parse_args: this runs at import time, so under a
+    # WSGI server (gunicorn imports investigator.wsgi) argv belongs to the
+    # server, not to us -- unknown args must not abort. Config in that case
+    # comes from the environment (every flag has an env fallback).
+    args, _unknown = parser.parse_known_args()
 
     # convert relative path to absolute path
     args.working_dir = os.path.abspath(args.working_dir)

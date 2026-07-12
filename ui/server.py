@@ -423,6 +423,32 @@ def _empty_graph_artifact(e):
 
 
 # ---------------------------------------------------------------------------
+# Production static serving (roadmap P0): when the frontend has been built
+# (`cd ui && npm run build` -> ui/dist), serve the bundle from this process so
+# the whole app runs same-origin on :5050 with no Vite dev server. In dev
+# (no dist/) these routes are simply not registered and Vite keeps serving
+# :5180 with its /api proxy, exactly as before.
+# ---------------------------------------------------------------------------
+
+UI_DIST = ROOT / "dist"
+
+if (UI_DIST / "index.html").exists():
+    @app.route("/")
+    def _spa_index():
+        return send_file(UI_DIST / "index.html")
+
+    @app.route("/<path:fname>")
+    def _spa_asset(fname: str):
+        # All /api/* routes are more specific and win; this only catches
+        # bundle assets. Anything unknown falls back to the SPA shell
+        # (hash-based router, so any path renders the app).
+        target = (UI_DIST / fname).resolve()
+        if target.is_file() and UI_DIST.resolve() in target.parents:
+            return send_file(target)
+        return send_file(UI_DIST / "index.html")
+
+
+# ---------------------------------------------------------------------------
 # Investigation discovery
 # ---------------------------------------------------------------------------
 
