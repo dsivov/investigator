@@ -10,12 +10,35 @@
   let recent = $state<InvestigationRow[]>([]);
   let health = $state<"ok" | "down" | "checking">("checking");
 
+  // Optional API-token gate (server-side INVESTIGATOR_API_TOKEN): when the
+  // health probe answers 401, ask for the token and store it as the
+  // `inv_token` cookie — the cookie (not a header) is the carrier so SSE
+  // streams and artifact links opened in new tabs are covered too.
+  let needsToken = $state(false);
+  let tokenInput = $state("");
+  let tokenErr = $state("");
+
+  async function submitToken() {
+    const t = tokenInput.trim();
+    if (!t) return;
+    document.cookie = `inv_token=${encodeURIComponent(t)}; path=/; max-age=31536000; SameSite=Lax`;
+    try {
+      await api.health();
+      location.reload();
+    } catch {
+      tokenErr = "Token rejected — check INVESTIGATOR_API_TOKEN on the server.";
+    }
+  }
+
   // Health: once on mount.
   $effect(() => {
     api
       .health()
       .then(() => (health = "ok"))
-      .catch(() => (health = "down"));
+      .catch((e: any) => {
+        if (e?.code === "unauthorized") needsToken = true;
+        else health = "down";
+      });
   });
 
   // Recent list: re-fetch on navigation and whenever dataVersion bumps
@@ -110,6 +133,36 @@
     {@render children?.()}
   </main>
 </div>
+
+{#if needsToken}
+  <!-- API token gate (server has INVESTIGATOR_API_TOKEN set) -->
+  <div class="fixed inset-0 z-50 bg-slate-950/95 flex items-center justify-center p-6">
+    <div class="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-6">
+      <div class="text-emerald-400 font-bold text-lg">OSINTGraph</div>
+      <p class="text-sm text-slate-400 mt-2 mb-4">
+        This instance requires an API token
+        (<span class="mono text-slate-300">INVESTIGATOR_API_TOKEN</span> on the server).
+      </p>
+      <input
+        type="password"
+        placeholder="API token"
+        bind:value={tokenInput}
+        onkeydown={(e) => e.key === "Enter" && submitToken()}
+        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500"
+      />
+      {#if tokenErr}
+        <div class="text-red-400 text-xs mt-2">{tokenErr}</div>
+      {/if}
+      <button
+        onclick={submitToken}
+        disabled={!tokenInput.trim()}
+        class="mt-3 w-full px-4 py-2 rounded-lg text-sm font-medium bg-emerald-700 hover:bg-emerald-600 text-white disabled:opacity-40"
+      >
+        Unlock
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .nav-link {

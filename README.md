@@ -514,6 +514,8 @@ backend is API-only and the Vite dev server keeps working as before.
 | Variable | Effect |
 |---|---|
 | `OPENAI_API_KEY` | LLM access (engine, and the UI's query-refinement endpoint). |
+| `INVESTIGATOR_API_TOKEN` | Optional shared API token. When set, every `/api/*` call must carry it (the UI prompts once and stores it as a cookie; scripts use `Authorization: Bearer` or `?token=`). Unset = open access. |
+| `INVESTIGATOR_DAILY_THREADS` | Optional daily spend guard: max investigation *threads* started per UTC day (a 3+3 claim run counts 6). New runs get 429 past the cap; running jobs are unaffected. Unset = unlimited. |
 | `ANALYTIC_ENGINE_ENABLED=1` | Accumulate finished investigations into the cumulative KG (same as `--analytic_engine_enabled`). |
 | `INVESTIGATOR_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes tab). |
 | `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |

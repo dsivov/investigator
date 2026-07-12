@@ -55,8 +55,10 @@ Open **http://localhost:5050**. Non-negotiable flags:
 - Under gunicorn all configuration comes from **environment variables** (CLI
   flags belong to gunicorn); every engine flag has an env fallback.
 
-There is **no built-in authentication yet** — keep :5050 on localhost or a
-trusted network, or front it with an authenticating reverse proxy.
+Authentication is **off by default** (an experimental platform on a trusted
+network needs none). To lock the instance — mandatory before exposing it
+beyond a trusted network — set `INVESTIGATOR_API_TOKEN` on the UI backend;
+pair it with `INVESTIGATOR_DAILY_THREADS` to cap worst-case daily LLM spend.
 
 ## Environment variables
 
@@ -64,6 +66,8 @@ trusted network, or front it with an authenticating reverse proxy.
 |---|---|
 | `OPENAI_API_KEY` | LLM access (engine, UI query-refinement, cumulative-KG layer). |
 | `ANALYTIC_ENGINE_ENABLED=1` | Accumulate finished investigations into the cumulative KG (equivalent to `--analytic_engine_enabled`; required under gunicorn where CLI flags are unavailable). |
+| `INVESTIGATOR_API_TOKEN` | Optional shared API token on the UI backend. When set, `/api/*` requires it — UI prompts once (cookie `inv_token`, covers SSE + artifact links); scripts use `Authorization: Bearer <token>` or `?token=`. Unset = open access. |
+| `INVESTIGATOR_DAILY_THREADS` | Optional daily spend guard: max investigation threads started per UTC day (claim 3+3 run = 6). Past the cap `POST /investigations` returns 429; running jobs unaffected. Unset = unlimited. |
 | `INVESTIGATOR_TMFG=1` | Enable TMFG themes + belief propagation (required for the themes / Key-network tabs). |
 | `INVESTIGATOR_DISABLE_CACHE=1` | Disable the LLM response cache. |
 | `INVESTIGATOR_ASYNC_WORKERS` | NER/extraction concurrency (default 16). Lower it to shrink the memory spike — see below. |

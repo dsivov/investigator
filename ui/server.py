@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 import queue
@@ -420,6 +421,66 @@ def _err(status: int, code: str, message: str, *, field: str | None = None):
 @app.errorhandler(EmptyGraphArtifact)
 def _empty_graph_artifact(e):
     return _err(422, "empty_graph", str(e))
+
+
+# ---------------------------------------------------------------------------
+# Optional shared API token (hardening phase 2, kept proportionate for an
+# experimental platform): OFF unless INVESTIGATOR_API_TOKEN is set. When set,
+# every /api/* request must carry the token. The canonical carrier is the
+# `inv_token` cookie -- it also covers EventSource (SSE) and target=_blank
+# artifact links, which cannot set headers -- but Authorization: Bearer and
+# ?token= are accepted too (scripting / curl).
+# ---------------------------------------------------------------------------
+
+_API_TOKEN = os.environ.get("INVESTIGATOR_API_TOKEN", "").strip()
+
+
+@app.before_request
+def _require_api_token():
+    if not _API_TOKEN or request.method == "OPTIONS":
+        return None
+    if not request.path.startswith("/api/"):
+        return None  # the SPA shell/assets stay public; every API call is gated
+    supplied = (
+        request.headers.get("Authorization", "").removeprefix("Bearer").strip()
+        or request.cookies.get("inv_token", "")
+        or request.args.get("token", "")
+    )
+    if not hmac.compare_digest(supplied, _API_TOKEN):
+        return _err(401, "unauthorized",
+                    "API token required — enter it in the UI, or send it as the "
+                    "inv_token cookie / Authorization: Bearer header / ?token=.")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Optional daily spend guard: OFF unless INVESTIGATOR_DAILY_THREADS is set.
+# Investigations are the dominant LLM spend, and their cost scales with the
+# number of event threads (a 3+3 claim run ~ 6 single-query runs), so the
+# budget is counted in THREADS STARTED per UTC day -- an honest proxy, not a
+# fake dollar figure. When the cap is reached, new job intake returns 429;
+# running jobs are never touched.
+# ---------------------------------------------------------------------------
+
+def _daily_thread_budget() -> int:
+    try:
+        return max(0, int(os.environ.get("INVESTIGATOR_DAILY_THREADS", "0")))
+    except ValueError:
+        return 0
+
+
+def _threads_launched_today() -> int:
+    today = datetime.now(timezone.utc).date().isoformat()
+    n = 0
+    for f in JOBS_DIR.glob("inv_*.json"):
+        try:
+            j = json.loads(f.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        started = str(j.get("started") or "")
+        if started.startswith(today):
+            n += len((j.get("spec") or {}).get("threads") or [])
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -2232,6 +2293,16 @@ def create_investigation():
         threads.append({"name": name, "query": query})
     if len({t["name"] for t in threads}) != len(threads):
         return _err(400, "thread_validation_failed", "thread names must be unique")
+
+    budget = _daily_thread_budget()
+    if budget:
+        used = _threads_launched_today()
+        if used + len(threads) > budget:
+            return _err(429, "daily_budget_exceeded",
+                        f"Daily thread budget reached ({used}/{budget} threads "
+                        f"started today; this run needs {len(threads)} more). "
+                        "New investigations resume tomorrow (UTC), or raise "
+                        "INVESTIGATOR_DAILY_THREADS.")
 
     domain_id = body.get("domain") or "general"
     domain_key = domain_id.removeprefix("dom_") if isinstance(domain_id, str) else "general"
