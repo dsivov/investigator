@@ -108,6 +108,100 @@
     cy.animate({ center: { eles: el }, duration: 250 });
   }
 
+  // Focused subgraph modal: render ONLY the selected storyline's nodes and
+  // their internal relationships with a fresh layout — a community embedded
+  // in a 500-node canvas is visually unreadable; untangled on its own it is.
+  let showSubgraph = $state(false);
+  let subEl = $state<HTMLDivElement | null>(null);
+  let subCy: any = null;
+
+  function closeSubgraph() {
+    showSubgraph = false;
+    if (subCy) {
+      subCy.destroy();
+      subCy = null;
+    }
+  }
+
+  $effect(() => {
+    if (!showSubgraph || !subEl || !selectedCommunity || !graph) return;
+    const c = selectedCommunity;
+    let destroyed = false;
+    (async () => {
+      const cytoscape = await loadCytoscape();
+      if (destroyed || !subEl) return;
+      const memberSet = new Set(communityMembers(c).map((n) => n.id));
+      const nodes = graph!.nodes.filter((n) => memberSet.has(n.id));
+      const edges = graph!.edges.filter(
+        (e) => !e.structural && memberSet.has(e.source) && memberSet.has(e.target),
+      );
+      subCy = cytoscape({
+        container: subEl,
+        wheelSensitivity: 0.2,
+        elements: [
+          ...nodes.map((n) => ({
+            data: { ...n, faceColour: communityColour(c.id) },
+            classes: n.type === "event" ? "is-event" : "is-actor",
+          })),
+          ...edges.map((e) => ({
+            data: { ...e, edgeColour: ETYPE_COLOR[e.type] || "#475569" },
+          })),
+        ],
+        style: [
+          {
+            selector: "node",
+            style: {
+              "background-color": "data(faceColour)",
+              label: "data(label)",
+              color: "#e2e8f0",
+              "font-size": 9,
+              "text-outline-width": 2,
+              "text-outline-color": "#0b1220",
+              "text-valign": "bottom",
+              "text-margin-y": 4,
+              width: 16,
+              height: 16,
+            },
+          },
+          { selector: ".is-event", style: { shape: "diamond" } },
+          {
+            selector: "edge",
+            style: {
+              "line-color": "data(edgeColour)",
+              "target-arrow-color": "data(edgeColour)",
+              "target-arrow-shape": "triangle",
+              "arrow-scale": 0.7,
+              width: 1.2,
+              "curve-style": "bezier",
+              opacity: 0.75,
+            },
+          },
+        ],
+      });
+      // Tap a node in the modal -> jump to it in the main graph.
+      subCy.on("tap", "node", (evt: any) => {
+        const id = evt.target.id();
+        closeSubgraph();
+        focusNode(id);
+      });
+      subCy.layout({
+        name: "fcose",
+        animate: false,
+        randomize: true,
+        nodeRepulsion: 9000,
+        idealEdgeLength: 80,
+      }).run();
+      subCy.fit(undefined, 30);
+    })();
+    return () => {
+      destroyed = true;
+      if (subCy) {
+        subCy.destroy();
+        subCy = null;
+      }
+    };
+  });
+
   async function summarizeCommunity() {
     if (!selectedCommunity || analyzingCommunity) return;
     analyzingCommunity = true;
@@ -537,13 +631,22 @@
         {/if}
       </div>
 
-      <button
-        class="mt-3 w-full px-3 py-2 rounded-lg text-xs font-medium bg-sky-800/60 hover:bg-sky-700/60 text-sky-100 border border-sky-700/50 disabled:opacity-40"
-        disabled={analyzingCommunity}
-        onclick={summarizeCommunity}
-      >
-        {analyzingCommunity ? "Narrating storyline…" : "✦ Summarize storyline"}
-      </button>
+      <div class="mt-3 flex gap-2">
+        <button
+          class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-sky-800/60 hover:bg-sky-700/60 text-sky-100 border border-sky-700/50 disabled:opacity-40"
+          disabled={analyzingCommunity}
+          onclick={summarizeCommunity}
+        >
+          {analyzingCommunity ? "Narrating storyline…" : "✦ Summarize storyline"}
+        </button>
+        <button
+          class="px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+          title="Open this storyline as a standalone subgraph with its own layout"
+          onclick={() => (showSubgraph = true)}
+        >
+          ⧉ Subgraph
+        </button>
+      </div>
       {#if communityErr}
         <div class="text-red-400 text-xs mt-2">{communityErr}</div>
       {/if}
@@ -697,3 +800,38 @@
     {/if}
   </aside>
 </div>
+
+<svelte:window onkeydown={(e) => e.key === "Escape" && showSubgraph && closeSubgraph()} />
+
+{#if showSubgraph && selectedCommunity}
+  <!-- Storyline subgraph modal -->
+  <div
+    class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6"
+    onclick={(e) => e.target === e.currentTarget && closeSubgraph()}
+    role="presentation"
+  >
+    <div class="w-[90vw] h-[85vh] max-w-6xl rounded-xl border border-slate-700 bg-slate-950 flex flex-col overflow-hidden shadow-2xl">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-4 py-2.5">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="inline-block w-3 h-3 rounded-full flex-shrink-0"
+            style="background: {communityColour(selectedCommunity.id)}"></span>
+          <span class="text-sm font-semibold text-slate-100 truncate">
+            Storyline: {selectedCommunity.label}
+          </span>
+          <span class="text-xs text-slate-500 whitespace-nowrap">
+            {selectedCommunity.size} members · internal relationships only
+          </span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[11px] text-slate-500">click a node to open it in the main graph</span>
+          <button
+            class="px-2 py-1 rounded border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs"
+            onclick={() => subCy?.fit(undefined, 30)}
+          >Fit</button>
+          <button class="text-slate-400 hover:text-slate-100 text-lg leading-none" onclick={closeSubgraph}>×</button>
+        </div>
+      </div>
+      <div bind:this={subEl} class="flex-1 min-h-0"></div>
+    </div>
+  </div>
+{/if}
