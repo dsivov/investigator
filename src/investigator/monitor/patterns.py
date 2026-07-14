@@ -215,3 +215,40 @@ def match_rules(events: dict, adjacency: dict, rules: list[dict], *,
 
     out.sort(key=lambda m: m["span"]["to"], reverse=True)
     return out
+
+
+def chain_signature(match: dict) -> str:
+    """Stable identity of a matched story: the rule + the FINAL event. Any
+    alternate chain reaching the same final event via different earlier events
+    or bridges is the same story for alerting purposes."""
+    evs = match.get("events") or []
+    last = evs[-1]["id"] if evs else ""
+    return f"{match.get('rule', '')}::{last}"
+
+
+def collapse_matches(matches: list[dict]) -> list[dict]:
+    """Collapse combinatorial duplicates: many distinct chains describe the
+    same story (any qualifying earlier event x the same completing event).
+    Keep, per (rule, final event), the chain with the strongest linkage (most
+    bridges, then shortest span) and carry the number of alternates."""
+    best: dict[str, dict] = {}
+    extras: dict[str, int] = {}
+    for m in matches:
+        sig = chain_signature(m)
+        cur = best.get(sig)
+        if cur is None:
+            best[sig] = m
+            extras[sig] = 0
+            continue
+        extras[sig] += 1
+        better = (len(m.get("bridges") or []), -(m.get("span") or {}).get("days", 0)) > \
+                 (len(cur.get("bridges") or []), -(cur.get("span") or {}).get("days", 0))
+        if better:
+            best[sig] = m
+    out = []
+    for sig, m in best.items():
+        m = dict(m)
+        m["alternateChains"] = extras[sig]
+        out.append(m)
+    out.sort(key=lambda m: m["span"]["to"], reverse=True)
+    return out

@@ -1201,11 +1201,13 @@ def monitor_patterns():
     kb = _get_kb()
     if kb is None:
         return _err(503, "kb_unavailable", "No cumulative knowledge base yet.")
-    from investigator.monitor.patterns import match_rules, build_adjacency, events_from_store
+    from investigator.monitor.patterns import (
+        match_rules, build_adjacency, collapse_matches, events_from_store)
     from investigator.monitor.rules import load_rules
     try:
-        matches = match_rules(events_from_store(kb.structured), build_adjacency(kb.structured),
-                              load_rules(), recent_since=_valid_date(request.args.get("recentSince")))
+        matches = collapse_matches(
+            match_rules(events_from_store(kb.structured), build_adjacency(kb.structured),
+                        load_rules(), recent_since=_valid_date(request.args.get("recentSince"))))
     except Exception as e:  # noqa: BLE001
         return _err(502, "kb_error", f"Pattern scan failed: {type(e).__name__}: {e}")
     return jsonify({"matches": matches, "count": len(matches)})

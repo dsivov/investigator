@@ -18,8 +18,10 @@ from investigator.graph.temporal_consistency import date_spread_conflict
 from investigator.monitor import impact as _impact
 from investigator.monitor.intake import daily_intake
 from investigator.monitor.intersect import intersect
+from investigator.monitor.fired import load_fired, mark_fired, split_new
 from investigator.monitor.patterns import (
-    match_rules, build_adjacency, events_from_store, events_from_graph)
+    match_rules, build_adjacency, collapse_matches, events_from_store,
+    events_from_graph)
 from investigator.monitor.rules import load_rules
 
 ALERT_THRESHOLD = float(os.getenv("INVESTIGATOR_MONITOR_ALERT", "0.2"))
@@ -121,10 +123,18 @@ def run_once(watchlist, *, k: int = 8, period: str = "1d", today: str | None = N
 
     # CEP pattern rules over the cumulative KG + today's fresh events (so a new
     # event can *complete* a pattern), scoped to the watchlist, surfacing only
-    # chains whose final event is recent.
-    digest["patterns"] = _scan_patterns(
-        structured, registry, watchlist, today=today, day=day)
-    digest["counts"]["patterns"] = len(digest["patterns"])
+    # chains whose final event is recent. Matches are collapsed per
+    # (rule, final event) and checked against the fired-pattern state, so each
+    # story alerts ONCE; previously alerted chains ride along as
+    # ``patternsSeen`` for context instead of re-alerting every run.
+    matches = collapse_matches(_scan_patterns(
+        structured, registry, watchlist, today=today, day=day))
+    fired = load_fired()
+    new_matches, seen_matches = split_new(matches, fired)
+    mark_fired(new_matches, today, fired)
+    digest["patterns"] = new_matches
+    digest["patternsSeen"] = seen_matches
+    digest["counts"]["patterns"] = len(new_matches)
     if save:
         digest["savedTo"] = str(save_digest(digest))
     return digest

@@ -44,6 +44,10 @@ export interface MonitorPatternMatch {
   events: { id: string; date: string; type: string }[];
   bridges: string[];
   span: { from: string; to: string; days: number };
+  // Collapsed duplicate chains reaching the same completing event.
+  alternateChains?: number;
+  // Set on previously alerted chains (digest.patternsSeen).
+  firedAt?: string;
 }
 
 export interface MonitorRuleStep {
@@ -65,6 +69,8 @@ export interface MonitorDigest {
   events: MonitorEvent[];
   alerts: MonitorEvent[];
   patterns?: MonitorPatternMatch[];
+  // Previously alerted chains still active — context, not alerts.
+  patternsSeen?: MonitorPatternMatch[];
   counts: { events: number; alerts: number; patterns?: number };
   intake?: { subjects: string[]; articles: number; extractedNodes: number; intersectedEvents: number };
 }

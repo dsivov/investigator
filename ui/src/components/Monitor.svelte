@@ -222,6 +222,7 @@
                 <span class="rounded border px-1.5 text-[11px] {sevClass(p.severity)}">{p.severity}</span>
                 <span class="text-slate-200 text-sm">{p.rule}</span>
                 <span class="text-slate-500 text-xs">· {p.span.days}d span</span>
+                {#if p.alternateChains}<span class="text-xs text-slate-600" title="Further chains reaching the same completing event, collapsed">+{p.alternateChains} alt.</span>{/if}
                 {#if p.bridges.length}<span class="text-xs text-slate-500">via <span class="mono text-emerald-300/80">{p.bridges.slice(0, 3).join(", ")}</span></span>{/if}
               </div>
               <ol class="mt-1 pl-2 space-y-0.5">
@@ -237,6 +238,14 @@
             </li>
           {/each}
         </ul>
+      {/if}
+
+      <!-- Previously alerted chains: context, not alerts -->
+      {#if digest.patternsSeen && digest.patternsSeen.length}
+        <div class="mt-4 text-xs text-slate-600">
+          {digest.patternsSeen.length} previously alerted pattern(s) still active
+          (first fired {digest.patternsSeen[0].firedAt}{digest.patternsSeen.length > 1 ? " …" : ""}) — not re-alerted.
+        </div>
       {/if}
     {:else}
       <div class="mt-6 text-sm text-slate-500">No digest yet. Add watched entities and click <b>Run monitor now</b>.</div>
