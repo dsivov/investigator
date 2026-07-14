@@ -6,6 +6,30 @@ governing ADR / ChangeRequest recorded in CG.
 
 ---
 
+## 2026-07-13 → 2026-07-14 — Monitor phase 2: CEP alert-once
+
+Makes the standing CEP monitor usable as a daily watch: a matched story alerts
+**once**, not on every subsequent run. Governed in CG: `cr-monitor-cep-state`.
+
+- **Chain collapsing** — `96fa157`. Combinatorial duplicate chains (any
+  qualifying earlier event × the same completing event) collapse per
+  (rule, final event); the strongest-linked chain wins and alternates are
+  counted (`alternateChains`). On the real store: 200 raw matches → 50 stories.
+  Applied in both the digest and the `/monitor/patterns` endpoint.
+- **Fired-pattern state** — `96fa157`. `fired_patterns.json` next to the KG
+  store remembers alerted chain signatures (rule + final event). New runs alert
+  only new stories; previously alerted ones ride along as `patternsSeen` with
+  their `firedAt` date. An alternate chain of a fired story does not re-fire;
+  a NEW completing event does. Corrupt state degrades to empty, never breaks
+  the digest.
+- **UI** — `96fa157`. Monitor tab shows "+N alt." on collapsed matches and a
+  "previously alerted, not re-alerted" footer.
+- Verified with unit tests (`tests/test_cep_state.py`) and a two-pass e2e
+  digest run on an isolated store copy (run 1 fires, run 2 fires zero and
+  carries the story as `patternsSeen`).
+
+---
+
 ## 2026-07-10 → 2026-07-12 — Storylines completed, production serving (v1.1.0)
 
 Closes the storyline arc into the analyst deliverable and clears the last open
